@@ -6,6 +6,7 @@ from app.services.availability import check_availability, find_available_slots
 from app.utils.date_utils import parse_date_range
 import json
 import platform
+import logging
 from datetime import datetime, timedelta
 
 bp = Blueprint('calendar', __name__, url_prefix='/calendar')
@@ -15,25 +16,48 @@ def list_calendars():
     """List all available calendars from connected accounts"""
     calendars = []
     
+    print("DEBUG: Starting list_calendars function")
+    print(f"DEBUG: Current platform is {platform.system()}")
+    
     # Check if running on macOS for Apple Calendar
     if platform.system() == 'Darwin':
-        apple_calendars = get_apple_calendars()
-        calendars.extend(apple_calendars)
+        print("DEBUG: Attempting to get Apple calendars")
+        try:
+            apple_calendars = get_apple_calendars()
+            print(f"DEBUG: Found {len(apple_calendars)} Apple calendars")
+            calendars.extend(apple_calendars)
+        except Exception as e:
+            print(f"DEBUG: Error getting Apple calendars: {str(e)}")
     
     # Get Google calendars if authenticated
     if 'google_token' in session:
-        google_calendars = get_google_calendars(session['google_token'])
-        for cal in google_calendars:
-            cal['provider'] = 'google'
-            calendars.append(cal)
+        print("DEBUG: Google token found in session")
+        try:
+            google_calendars = get_google_calendars(session['google_token'])
+            print(f"DEBUG: Found {len(google_calendars)} Google calendars")
+            for cal in google_calendars:
+                cal['provider'] = 'google'
+                calendars.append(cal)
+        except Exception as e:
+            print(f"DEBUG: Error getting Google calendars: {str(e)}")
+    else:
+        print("DEBUG: No Google token found in session")
     
     # Get Microsoft calendars if authenticated
     if 'microsoft_token' in session:
-        microsoft_calendars = get_microsoft_calendars(session['microsoft_token'])
-        for cal in microsoft_calendars:
-            cal['provider'] = 'microsoft'
-            calendars.append(cal)
+        print("DEBUG: Microsoft token found in session")
+        try:
+            microsoft_calendars = get_microsoft_calendars(session['microsoft_token'])
+            print(f"DEBUG: Found {len(microsoft_calendars)} Microsoft calendars")
+            for cal in microsoft_calendars:
+                cal['provider'] = 'microsoft'
+                calendars.append(cal)
+        except Exception as e:
+            print(f"DEBUG: Error getting Microsoft calendars: {str(e)}")
+    else:
+        print("DEBUG: No Microsoft token found in session")
     
+    print(f"DEBUG: Total calendars found: {len(calendars)}")
     return render_template('calendars.html', calendars=calendars)
 
 @bp.route('/select', methods=['POST'])

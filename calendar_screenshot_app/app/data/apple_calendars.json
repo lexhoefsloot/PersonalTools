@@ -1,0 +1,140 @@
+{
+  "calendars": [
+    {
+      "id": "apple:agenda",
+      "name": "Agenda",
+      "description": "Apple Calendar: Agenda",
+      "provider": "apple",
+      "primary": true
+    },
+    {
+      "id": "apple:gezin",
+      "name": "Gezin",
+      "description": "Apple Calendar: Gezin",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:werk",
+      "name": "Werk",
+      "description": "Apple Calendar: Werk",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:thuis",
+      "name": "Thuis",
+      "description": "Apple Calendar: Thuis",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:lex.hoefsloot@lightyear.one",
+      "name": "lex.hoefsloot@lightyear.one",
+      "description": "Apple Calendar: lex.hoefsloot@lightyear.one",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:todoist",
+      "name": "Todoist",
+      "description": "Apple Calendar: Todoist",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:lex-hoefsloot",
+      "name": "Lex Hoefsloot",
+      "description": "Apple Calendar: Lex Hoefsloot",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:lex-hoefsloot",
+      "name": "Lex Hoefsloot",
+      "description": "Apple Calendar: Lex Hoefsloot",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:feestdagen-in-nederland",
+      "name": "Feestdagen in Nederland",
+      "description": "Apple Calendar: Feestdagen in Nederland",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:auto",
+      "name": "auto",
+      "description": "Apple Calendar: auto",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:wervingskalender",
+      "name": "Wervingskalender",
+      "description": "Apple Calendar: Wervingskalender",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:studie",
+      "name": "Studie",
+      "description": "Apple Calendar: Studie",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:tessie-hartjes-gmail",
+      "name": "Tessie Hartjes Gmail",
+      "description": "Apple Calendar: Tessie Hartjes Gmail",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:ironman",
+      "name": "Ironman",
+      "description": "Apple Calendar: Ironman",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:calendar",
+      "name": "Calendar",
+      "description": "Apple Calendar: Calendar",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:birthdays",
+      "name": "Birthdays",
+      "description": "Apple Calendar: Birthdays",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:united-kingdom-holidays",
+      "name": "United Kingdom holidays",
+      "description": "Apple Calendar: United Kingdom holidays",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:untitled-calendar",
+      "name": "Untitled Calendar",
+      "description": "Apple Calendar: Untitled Calendar",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:scheduled-reminders",
+      "name": "Scheduled Reminders",
+      "description": "Apple Calendar: Scheduled Reminders",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:birthdays",
+      "name": "Birthdays",
+      "description": "Apple Calendar: Birthdays",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:nederlandse-feestdagen",
+      "name": "Nederlandse feestdagen",
+      "description": "Apple Calendar: Nederlandse feestdagen",
+      "provider": "apple"
+    },
+    {
+      "id": "apple:siri-suggestions",
+      "name": "Siri Suggestions",
+      "description": "Apple Calendar: Siri Suggestions",
+      "provider": "apple"
+    }
+  ],
+  "timestamp": "2025-03-18T15:01:12.245096",
+  "count": 22,
+  "manual": true
+}

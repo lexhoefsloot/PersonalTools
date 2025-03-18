@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 from app.routes import auth_routes, calendar_routes, screenshot_routes
 from app.services.clipboard_monitor import start_clipboard_monitor_thread
 import platform
+import sys
+import subprocess
 
 # Load environment variables
 load_dotenv()
@@ -52,7 +54,21 @@ def create_app():
     
     return app
 
+def open_calendar_app():
+    """Open Calendar app on macOS to ensure proper integration"""
+    if platform.system() == 'Darwin':
+        try:
+            print("Opening Calendar app to ensure proper integration...")
+            subprocess.run(['open', '-a', 'Calendar'], check=True)
+            print("Calendar app opened successfully.")
+        except Exception as e:
+            print(f"Warning: Could not open Calendar app: {e}")
+
 def main():
+    # Open Calendar app first if on macOS
+    open_calendar_app()
+    
+    # Create and run the Flask application
     app = create_app()
     
     # Start clipboard monitoring in a background thread

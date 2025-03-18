@@ -1,0 +1,129 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Make sure to always update this documentation when structure of functionality of the app changes
+
+# Calendar Screenshot Analyzer - Project Documentation
+
+## Project Overview
+A Python web application that:
+1. Connects to multiple calendar sources (Google Calendar, Microsoft Office 365, and Apple Calendar on macOS)
+2. Analyzes screenshots of conversations using Claude AI to extract meeting time suggestions
+3. Intelligently identifies whether the text suggests time slots or requests availability
+4. Checks calendar availability for detected time slots
+5. Provides alternative time suggestions when no suitable slots are found
+6. Allows copying of suitable meeting times to clipboard
+
+## Current Project Structure
+calendar_screenshot_app/
+├── app/
+│ ├── init.py # Flask application factory
+│ ├── main.py # Legacy entry point (run.py is now used)
+│ ├── routes/
+│ │ ├── init.py
+│ │ ├── auth_routes.py # Google/Microsoft authentication
+│ │ ├── calendar_routes.py # Calendar management routes
+│ │ └── screenshot_routes.py # Screenshot upload/analysis routes
+│ ├── services/
+│ │ ├── init.py
+│ │ ├── apple_calendar.py # Apple Calendar integration (macOS only)
+│ │ ├── availability.py # Availability checking logic
+│ │ ├── clipboard_monitor.py # Clipboard monitoring for screenshots
+│ │ ├── claude_service.py # Anthropic Claude API integration for image analysis
+│ │ ├── google_calendar.py # Google Calendar API integration
+│ │ ├── microsoft_calendar.py # Microsoft Graph API integration
+│ │ └── screenshot_analyzer.py # OCR fallback for time extraction
+│ ├── static/ # CSS, JS, and static assets
+│ ├── templates/ # HTML templates
+│ │ ├── analysis_results.html # Results display
+│ │ ├── base.html # Base template with layout
+│ │ ├── calendars.html # Calendar selection page
+│ │ ├── dashboard.html # Main dashboard
+│ │ └── index.html # Landing page
+│ ├── utils/ # Utility functions
+│ └── models/ # Data models
+├── docs/ # Documentation
+├── tests/ # Unit and integration tests
+├── .env # Environment variables
+├── rules.md # Application architecture rules
+├── README.md # Project documentation
+├── requirements.txt # Python dependencies
+└── run.py # Application entry point
+
+## Technical Implementation
+
+### Core Components
+
+1. **Multi-Calendar Integration**
+   - Google Calendar via Google API
+   - Microsoft Calendar via Microsoft Graph API
+   - Apple Calendar via AppleScript (macOS only)
+   - Calendar selection and filtering interface
+
+2. **Claude-Powered Screenshot Analysis**
+   - Direct integration with Anthropic's Claude API
+   - Advanced prompt engineering for accurate time extraction
+   - Detection of suggestion vs. request context
+   - Time slot extraction with priority indicators
+   - OCR fallback using Tesseract when Claude unavailable
+
+3. **Availability Engine**
+   - Cross-calendar availability checking
+   - Conflict detection and resolution
+   - Alternative time slot suggestions
+   - Time zone handling
+
+4. **User Interface**
+   - Responsive Bootstrap-based design
+   - Clipboard integration for quick analysis
+   - Copy-to-clipboard functionality for time slots
+   - Calendar status indicators
+   - Modal-based screenshot upload
+
+### Key Features
+
+- **Claude AI Analysis**: Intelligent screenshot understanding using Claude's multimodal capabilities
+- **Platform Integration**: Automatic Apple Calendar detection on macOS without authentication
+- **Multiple Calendar Sources**: Support for Google, Microsoft, and Apple calendars
+- **Clipboard Analysis**: Direct analysis from clipboard screenshots
+- **Intelligent Time Detection**: Advanced pattern matching for various time formats
+- **Availability Checking**: Cross-reference with all connected calendars
+- **Alternative Suggestions**: Recommends available time slots when conflicts exist
+- **Responsive UI**: Works on desktop and mobile devices
+- **Quick Copy**: Copy time slots with a single click
+
+## Workflow
+
+1. **Suggesting Times Workflow**:
+   - User uploads screenshot of suggested meeting times
+   - Claude analyzes and identifies that someone is suggesting times
+   - App checks user's calendar availability for each suggested slot
+   - User sees which suggestions work with their schedule
+   - User can select and copy suitable times to clipboard
+
+2. **Requesting Times Workflow**:
+   - User uploads screenshot of someone requesting meeting times
+   - Claude analyzes and identifies that someone is requesting times
+   - App identifies free slots in the user's calendar around requested times
+   - User selects from available options
+   - App formats time suggestions for easy copying to clipboard
+
+## Environment Setup
+
+- **Authentication Credentials**: Google Client ID/Secret, Microsoft Client ID/Secret, Claude API Key
+- **Flask Configuration**: Secret key, debug mode, port settings
+- **Feature Flags**: Optional features can be enabled/disabled
+- **Development Tools**: Python virtual environment, debug utilities
+
+## Technologies
+
+- **Backend**: Python 3.8+, Flask
+- **Frontend**: HTML5, CSS3, JavaScript, Bootstrap 5
+- **AI**: Anthropic Claude API for advanced screenshot analysis
+- **APIs**: Google Calendar API, Microsoft Graph API, AppleScript (macOS)
+- **OCR Fallback**: Tesseract, OpenCV, Pillow
+- **Authentication**: OAuth 2.0
+- **Deployment**: Local development server with dotenv configuration
+

@@ -24,6 +24,96 @@
     .copy-btn {
         cursor: pointer;
     }
+    .slot-calendar {
+        height: 500px;
+        margin-top: 0;
+        width: 100%;
+    }
+    .fc-event.suggested-time {
+        border: 3px dashed #007bff !important;
+        background-color: rgba(0, 123, 255, 0.15) !important;
+        color: #007bff !important;
+        font-weight: bold !important;
+        z-index: 999 !important;
+    }
+    .calendar-container {
+        margin-bottom: 30px;
+    }
+    .calendar-container h5 {
+        border-bottom: 1px solid #eee;
+        padding-bottom: 8px;
+        margin-bottom: 15px;
+    }
+    .time-frame {
+        margin-bottom: 10px;
+    }
+    /* Improve time slot grid styling */
+    .fc-timegrid-event {
+        min-height: 30px !important;
+        padding: 2px 4px !important;
+    }
+    .fc .fc-timegrid-slot {
+        height: 2.5em !important;
+    }
+    .fc-daygrid-day-frame {
+        min-height: 100px;
+    }
+    /* Add visual boundary around the suggested time */
+    .fc-timegrid-event.suggested-time {
+        position: relative;
+        overflow: visible !important;
+    }
+    /* Better contrast for event titles */
+    .fc-event-title {
+        font-weight: 600 !important;
+        text-shadow: 0px 0px 2px rgba(255, 255, 255, 0.7);
+        padding: 2px 0;
+    }
+    /* Improve specific event types */
+    .fc-event.apple-event {
+        background-color: #6c757d !important;
+        border-color: #5a6268 !important;
+    }
+    .fc-event.google-event {
+        background-color: #0d6efd !important;
+        border-color: #0a58ca !important;
+    }
+    .fc-event.microsoft-event {
+        background-color: #6610f2 !important;
+        border-color: #5b0fbe !important;
+    }
+    /* Ensure event times are visible */
+    .fc-event-time {
+        font-weight: normal !important;
+        opacity: 0.9;
+        padding: 0 2px;
+    }
+    /* Improve the calendar container */
+    .calendar-view-section {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        overflow: hidden;
+        position: relative;
+        min-height: 400px;
+    }
+    /* Loading indicator for calendars */
+    .calendar-loading {
+        text-align: center;
+        padding: 20px;
+        font-style: italic;
+        color: #6c757d;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.9);
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
 </style>
 {% endblock %}
 
@@ -64,17 +154,66 @@
                 </div>
             </div>
             
-            {% if result.is_suggestion and result.availability %}
+            <!-- Calendar View Section -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="h5 mb-0">Calendar View</h3>
+                    <button class="btn btn-sm btn-outline-secondary" id="toggle-calendars-btn">
+                        <span class="toggle-text">Hide Calendars</span>
+                    </button>
+                </div>
+                <div class="card-body" id="calendars-container">
+                    <div class="row" id="time-slot-calendars">
+                        {% if result.time_slots %}
+                            {% for slot in result.time_slots %}
+                                <div class="col-md-6 calendar-container">
+                                    <h5>{{ slot.start_time.strftime('%A, %b %d, %Y') }}</h5>
+                                    <div class="time-frame">
+                                        <strong>{{ slot.start_time.strftime('%I:%M %p') }} - {{ slot.end_time.strftime('%I:%M %p') }}</strong>
+                                        <span class="ms-2 badge {% if slot.available %}bg-success{% else %}bg-danger{% endif %}">
+                                            {% if slot.available %}Available{% else %}Unavailable{% endif %}
+                                        </span>
+                                    </div>
+                                    <div class="slot-calendar-container calendar-view-section">
+                                        <div class="calendar-loading" id="loading-calendar-{{ loop.index }}" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255, 255, 255, 0.9); z-index: 10; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px;">
+                                            <div>
+                                                <div class="spinner-border spinner-border-sm text-primary mb-2" role="status">
+                                                    <span class="visually-hidden">Loading...</span>
+                                                </div>
+                                                <div>Loading today's calendar events...</div>
+                                                <small class="text-muted d-block mt-2">Suggested time from screenshot: {{ slot.start_time.strftime('%A, %b %d, %Y') }}</small>
+                                                <small class="text-muted d-block mt-1">Showing <strong>current</strong> calendar for planning</small>
+                                            </div>
+                                        </div>
+                                        <div class="slot-calendar" id="calendar-slot-{{ loop.index }}" 
+                                            data-slot-start="{{ slot.start_time.isoformat() }}"
+                                            data-slot-end="{{ slot.end_time.isoformat() }}"
+                                            data-slot-date="{{ slot.start_time.strftime('%Y-%m-%d') }}"
+                                            data-slot-available="{{ slot.available|lower }}">
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="col-12">
+                                <p>No time slots to display</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            
+            {% if result.is_suggestion and result.time_slots %}
                 <div class="card mb-4">
                     <div class="card-header">
                         <h3 class="h5 mb-0">Suggested Time Slots</h3>
                     </div>
                     <div class="card-body">
-                        {% for slot_key, slot in result.availability.items() %}
+                        {% for slot in result.time_slots %}
                             <div class="time-slot {% if slot.available %}time-slot-available{% else %}time-slot-unavailable{% endif %}">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <h4 class="h6 mb-1">{{ slot_key }}</h4>
+                                        <h4 class="h6 mb-1">{{ slot.start_time.strftime('%A, %b %d, %Y %I:%M %p') }} - {{ slot.end_time.strftime('%I:%M %p') }}</h4>
                                         {% if slot.context %}
                                             <div class="mb-2">{{ slot.context }}</div>
                                         {% endif %}
@@ -87,7 +226,7 @@
                                         </div>
                                     </div>
                                     <div>
-                                        <button class="btn btn-sm btn-outline-primary copy-btn" data-text="{{ slot_key }}">
+                                        <button class="btn btn-sm btn-outline-primary copy-btn" data-text="{{ slot.start_time.strftime('%A, %b %d, %Y %I:%M %p') }} - {{ slot.end_time.strftime('%I:%M %p') }}">
                                             <i class="bi bi-clipboard"></i> Copy
                                         </button>
                                     </div>
@@ -107,25 +246,23 @@
                         {% endfor %}
                     </div>
                 </div>
-            {% elif not result.is_suggestion and result.available_slots %}
+            {% elif not result.is_suggestion and suggested_slots %}
                 <div class="card mb-4">
                     <div class="card-header">
                         <h3 class="h5 mb-0">Available Time Slots</h3>
                     </div>
                     <div class="card-body">
-                        {% if result.available_slots|length == 0 %}
+                        {% if suggested_slots|length == 0 %}
                             <p>No available time slots found during the requested time period.</p>
                         {% else %}
-                            {% for slot in result.available_slots %}
+                            {% for slot in suggested_slots %}
                                 <div class="time-slot time-slot-suggested">
                                     <div class="d-flex justify-content-between align-items-center">
                                         <div>
-                                            {% set start = slot.start|replace('T', ' ')|replace('Z', '') %}
-                                            {% set end = slot.end|replace('T', ' ')|replace('Z', '') %}
-                                            <h4 class="h6 mb-0">{{ start }} - {{ end }}</h4>
+                                            <h4 class="h6 mb-0">{{ slot.start_time.strftime('%A, %b %d, %Y %I:%M %p') }} - {{ slot.end_time.strftime('%I:%M %p') }}</h4>
                                         </div>
                                         <div>
-                                            <button class="btn btn-sm btn-outline-primary copy-btn" data-text="{{ start }} - {{ end }}">
+                                            <button class="btn btn-sm btn-outline-primary copy-btn" data-text="{{ slot.start_time.strftime('%A, %b %d, %Y %I:%M %p') }} - {{ slot.end_time.strftime('%I:%M %p') }}">
                                                 <i class="bi bi-clipboard"></i> Copy
                                             </button>
                                         </div>
@@ -148,15 +285,21 @@
                                 <tr>
                                     <th>Start Time</th>
                                     <th>End Time</th>
-                                    <th>Context</th>
+                                    <th>Status</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for slot in result.time_slots %}
                                     <tr>
-                                        <td>{{ slot.start }}</td>
-                                        <td>{{ slot.end }}</td>
-                                        <td>{{ slot.context }}</td>
+                                        <td>{{ slot.start_time.strftime('%A, %b %d, %Y %I:%M %p') }}</td>
+                                        <td>{{ slot.end_time.strftime('%I:%M %p') }}</td>
+                                        <td>
+                                            {% if slot.available %}
+                                                <span class="badge bg-success">Available</span>
+                                            {% else %}
+                                                <span class="badge bg-danger">Unavailable</span>
+                                            {% endif %}
+                                        </td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
@@ -167,11 +310,33 @@
         {% endif %}
     </div>
 </div>
+
+<!-- Calendar Events JSON Data -->
+{% if all_calendar_events %}
+<script id="all-calendar-events" type="application/json">
+[
+    {% for event in all_calendar_events %}
+    {
+        "title": "{{ event.title|replace('"', '\\"')|replace('\n', ' ')|replace('\r', ' ') }}",
+        "start": "{{ event.start }}",
+        "end": "{{ event.end }}",
+        "backgroundColor": "{{ '#6c757d' if event.provider == 'apple' else ('#0d6efd' if event.provider == 'google' else '#6610f2') }}",
+        "borderColor": "{{ '#6c757d' if event.provider == 'apple' else ('#0d6efd' if event.provider == 'google' else '#6610f2') }}",
+        "classNames": ["{{ event.provider }}-event"]
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+]
+</script>
+{% else %}
+<script id="all-calendar-events" type="application/json">[]</script>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOM loaded, initializing calendar view...');
+        
         // Add copy functionality to all copy buttons
         document.querySelectorAll('.copy-btn').forEach(button => {
             button.addEventListener('click', function() {
@@ -194,6 +359,317 @@
                     });
             });
         });
+        
+        // Toggle calendar visibility
+        const toggleBtn = document.getElementById('toggle-calendars-btn');
+        const calendarsContainer = document.getElementById('calendars-container');
+        
+        toggleBtn.addEventListener('click', function() {
+            if (calendarsContainer.style.display === 'none') {
+                calendarsContainer.style.display = 'block';
+                toggleBtn.querySelector('.toggle-text').textContent = 'Hide Calendars';
+            } else {
+                calendarsContainer.style.display = 'none';
+                toggleBtn.querySelector('.toggle-text').textContent = 'Show Calendars';
+            }
+        });
+        
+        // Get all calendar events
+        console.log('Loading calendar events...');
+        let calendarEvents = [];
+        const calendarEventsEl = document.getElementById('all-calendar-events');
+        
+        console.log('Calendar events element found:', !!calendarEventsEl);
+        if (calendarEventsEl) {
+            try {
+                // Get the JSON directly from the script element
+                const jsonText = calendarEventsEl.textContent.trim();
+                console.log('Calendar events JSON length:', jsonText.length);
+                
+                if (jsonText.length > 0) {
+                    // Only log a sample if there's a lot of data
+                    if (jsonText.length > 100) {
+                        console.log('Sample of JSON:', jsonText.substring(0, 100) + '...');
+                    }
+                    
+                    // Start a timeout to handle slow parsing
+                    const parseTimeout = setTimeout(() => {
+                        console.warn('Calendar event parsing is taking a long time...');
+                        document.querySelectorAll('.calendar-loading').forEach(el => {
+                            el.innerHTML = '<div class="text-warning">Loading events is taking longer than expected...</div>';
+                        });
+                    }, 2000);
+                    
+                    calendarEvents = JSON.parse(jsonText);
+                    clearTimeout(parseTimeout);
+                    
+                    console.log(`Successfully parsed ${calendarEvents.length} calendar events`);
+                    
+                    // Log details of first few events if available
+                    if (calendarEvents.length > 0) {
+                        console.log('First event details:', calendarEvents[0]);
+                    }
+                } else {
+                    console.log('No calendar events data found (empty JSON)');
+                }
+            } catch (e) {
+                console.error('Error parsing calendar events:', e);
+                console.log('Raw content that caused error:', 
+                    jsonText.length > 200 ? jsonText.substring(0, 200) + '...' : jsonText);
+                    
+                // Show error in all loading indicators
+                document.querySelectorAll('.calendar-loading').forEach(el => {
+                    el.innerHTML = '<div class="text-danger">Error loading calendar events</div>';
+                });
+            }
+        } else {
+            console.warn('No calendar events element found in the DOM');
+        }
+        
+        // Initialize calendars for each time slot using a staggered approach
+        const calendarElements = document.querySelectorAll('.slot-calendar');
+        console.log(`Found ${calendarElements.length} calendar slots to initialize`);
+        
+        // Initialize calendars one by one with a small delay to avoid freezing the browser
+        function initializeCalendar(index) {
+            if (index >= calendarElements.length) {
+                console.log('All calendars initialized');
+                return;
+            }
+            
+            const calendarEl = calendarElements[index];
+            console.log(`Initializing calendar ${index + 1}...`);
+            
+            const slotStart = calendarEl.dataset.slotStart;
+            const slotEnd = calendarEl.dataset.slotEnd;
+            const slotDate = calendarEl.dataset.slotDate;
+            const isAvailable = calendarEl.dataset.slotAvailable === 'true';
+            const calendarId = calendarEl.id;
+            const loadingId = 'loading-' + calendarId;
+            
+            console.log(`Calendar ${index + 1} data:`, {
+                id: calendarId,
+                start: slotStart,
+                end: slotEnd,
+                date: slotDate,
+                available: isAvailable
+            });
+            
+            try {
+                // Set a timeout to detect slow rendering
+                const renderTimeout = setTimeout(() => {
+                    const loadingEl = document.getElementById(loadingId);
+                    if (loadingEl) {
+                        loadingEl.innerHTML = '<div class="text-warning">Calendar is taking longer than expected to load...</div>';
+                    }
+                }, 3000);
+                
+                // Initialize calendar with suggested time
+                const calendar = new FullCalendar.Calendar(calendarEl, {
+                    initialView: 'timeGridDay',
+                    initialDate: new Date(), // Always use today's date
+                    headerToolbar: {
+                        left: '',
+                        center: 'title',
+                        right: ''
+                    },
+                    height: '100%',
+                    allDaySlot: false,
+                    slotMinTime: '07:00:00',
+                    slotMaxTime: '21:00:00',
+                    scrollTime: new Date(slotStart).toTimeString().slice(0, 8),
+                    slotDuration: '00:30:00', // Increased to improve performance
+                    slotLabelInterval: '01:00:00',
+                    eventTimeFormat: {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        meridiem: 'short'
+                    },
+                    eventDidMount: function(info) {
+                        if (info.event.extendedProps.type === 'suggested') {
+                            info.el.classList.add('suggested-time');
+                        }
+                    },
+                    datesSet: function() {
+                        console.log(`Calendar ${index + 1} dates set, loading finished`);
+                        clearTimeout(renderTimeout);
+                        
+                        // Always hide loading indicator or replace with a helpful message
+                        const loadingEl = document.getElementById(loadingId);
+                        
+                        if (loadingEl) {
+                            // Check if we have any real events (not counting the suggested time slot)
+                            const hasRealEvents = calendarEvents && calendarEvents.some(event => {
+                                const eventStart = new Date(event.start);
+                                const eventDate = eventStart.toDateString();
+                                const slotDateObj = new Date(slotDate);
+                                return eventDate === slotDateObj.toDateString();
+                            });
+                            
+                            if (hasRealEvents) {
+                                // If we have real calendar events, hide the loading indicator
+                                loadingEl.style.display = 'none';
+                            } else {
+                                // If we have no events, show "No events found" message
+                                const slotDateTime = new Date(slotStart);
+                                const isHistoricalDate = slotDateTime < new Date(new Date().getTime() - (7 * 24 * 60 * 60 * 1000)); // 7 days ago
+                                
+                                if (isHistoricalDate) {
+                                    loadingEl.innerHTML = `
+                                        <div class="text-muted">
+                                            <p>Showing <strong>current</strong> calendar events for comparison with a 
+                                            <strong>historical suggestion</strong> from ${slotDateTime.toLocaleDateString()}.</p>
+                                            <p class="small mt-2">This calendar shows <strong>today's</strong> events to help you plan.</p>
+                                        </div>`;
+                                } else {
+                                    loadingEl.innerHTML = `
+                                        <div class="text-muted">
+                                            <p>No calendar events found for this date.</p>
+                                            <p class="small mt-2">Showing your current calendar events for planning.</p>
+                                        </div>`;
+                                }
+                                loadingEl.style.background = 'rgba(255, 255, 255, 0.8)';
+                            }
+                        } else {
+                            console.warn(`Loading element with ID ${loadingId} not found`);
+                        }
+                    }
+                });
+                
+                // First, render the calendar
+                console.log(`Rendering calendar ${index + 1}...`);
+                calendar.render();
+                console.log(`Calendar ${index + 1} rendered.`);
+                
+                // Now add events - first the real calendar events (matching only this day)
+                const eventsToAdd = [];
+                let matchingEventsCount = 0;
+                
+                if (calendarEvents && calendarEvents.length > 0) {
+                    console.log(`Filtering ${calendarEvents.length} events for calendar ${index + 1}...`);
+                    
+                    // Filter events for this specific date
+                    const slotDateObj = new Date(slotDate);
+                    const slotDateStr = slotDateObj.toDateString();
+                    
+                    const matchingEvents = calendarEvents.filter(event => {
+                        try {
+                            const eventStart = new Date(event.start);
+                            const eventDate = eventStart.toDateString();
+                            return eventDate === slotDateStr;
+                        } catch (e) {
+                            console.error(`Error filtering event:`, e, event);
+                            return false;
+                        }
+                    });
+                    
+                    matchingEventsCount = matchingEvents.length;
+                    console.log(`Found ${matchingEventsCount} events matching date ${slotDate} for calendar ${index + 1}`);
+                    
+                    // Add events to the calendar (limit to 50 per calendar for performance)
+                    const maxEventsToAdd = Math.min(matchingEvents.length, 50);
+                    for (let i = 0; i < maxEventsToAdd; i++) {
+                        const event = matchingEvents[i];
+                        eventsToAdd.push({
+                            title: event.title,
+                            start: event.start,
+                            end: event.end,
+                            backgroundColor: event.backgroundColor,
+                            borderColor: event.borderColor,
+                            classNames: event.classNames,
+                            extendedProps: {
+                                type: 'calendar'
+                            }
+                        });
+                    }
+                    
+                    if (matchingEvents.length > maxEventsToAdd) {
+                        console.log(`Limited display to ${maxEventsToAdd} events for performance`);
+                    }
+                } else {
+                    console.log(`No events available to add to calendar ${index + 1}`);
+                    // Change the loading indicator to "No events found" message
+                    const loadingEl = document.getElementById(loadingId);
+                    if (loadingEl) {
+                        loadingEl.innerHTML = '<div class="text-muted">No calendar events found</div>';
+                        loadingEl.style.background = 'rgba(255, 255, 255, 0.7)';
+                    }
+                }
+                
+                // Add the suggested time slot last so it's on top
+                console.log(`Adding suggested time slot to calendar ${index + 1}`);
+                
+                // Calculate relative offset to show the suggested time at the right time of day in today's calendar
+                const today = new Date();
+                const slotStartObj = new Date(slotStart);
+                const slotEndObj = new Date(slotEnd);
+                
+                // Create a suggested time that's at the same time of day but on today's date
+                const suggestedStartToday = new Date(
+                    today.getFullYear(), 
+                    today.getMonth(), 
+                    today.getDate(),
+                    slotStartObj.getHours(),
+                    slotStartObj.getMinutes()
+                );
+                
+                const suggestedEndToday = new Date(
+                    today.getFullYear(), 
+                    today.getMonth(), 
+                    today.getDate(),
+                    slotEndObj.getHours(),
+                    slotEndObj.getMinutes()
+                );
+                
+                // Add the suggested time event
+                eventsToAdd.push({
+                    title: `Suggested Time: ${slotStartObj.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})} - ${slotEndObj.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}`,
+                    start: suggestedStartToday,
+                    end: suggestedEndToday,
+                    backgroundColor: isAvailable ? 'rgba(0, 200, 0, 0.2)' : 'rgba(255, 0, 0, 0.1)',
+                    textColor: isAvailable ? '#28a745' : '#dc3545',
+                    borderColor: isAvailable ? '#28a745' : '#dc3545',
+                    classNames: ['suggested-time'],
+                    extendedProps: {
+                        type: 'suggested',
+                        originalDate: slotDateObj.toLocaleDateString()
+                    }
+                });
+                
+                // Add all events at once for better performance
+                console.log(`Adding ${eventsToAdd.length} events to calendar ${index + 1}`);
+                calendar.addEventSource({
+                    events: eventsToAdd
+                });
+                
+                console.log(`Calendar ${index + 1} setup complete.`);
+                
+                // Initialize the next calendar with a small delay
+                setTimeout(() => {
+                    initializeCalendar(index + 1);
+                }, 100);
+                
+            } catch (e) {
+                console.error(`Error setting up calendar ${index + 1}:`, e);
+                // Hide loading indicator on error
+                const loadingEl = document.getElementById(loadingId);
+                if (loadingEl) {
+                    loadingEl.innerHTML = '<div class="text-danger">Error loading calendar</div>';
+                }
+                
+                // Continue with the next calendar
+                setTimeout(() => {
+                    initializeCalendar(index + 1);
+                }, 100);
+            }
+        }
+        
+        // Start initializing calendars
+        if (calendarElements.length > 0) {
+            initializeCalendar(0);
+        } else {
+            console.log('No calendars to initialize');
+        }
     });
 </script>
 {% endblock %} 

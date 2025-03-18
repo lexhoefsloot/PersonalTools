@@ -72,8 +72,18 @@
                         
                         {% if platform.system() == 'Darwin' %}
                             <div class="alert alert-warning">
+                                <h5 class="alert-heading">Calendar Access Required</h5>
+                                <p>
+                                    To access your Apple Calendar, you need to grant permissions to the application.
+                                </p>
+                                <p>
+                                    <strong>Please run the following command in your terminal:</strong>
+                                </p>
+                                <div class="bg-dark text-light p-3 mb-3 rounded">
+                                    <code>cd ~/PersonalTools/calendar_screenshot_app && python3 fetch_calendars.py</code>
+                                </div>
                                 <p class="mb-0">
-                                    Apple Calendar should be available on your Mac. Please make sure the Calendar app is set up with your accounts.
+                                    This will prompt for the necessary permissions. Once granted, refresh this page.
                                 </p>
                             </div>
                         {% else %}
