@@ -1,0 +1,69 @@
+/* Custom styles for the Calendar Screenshot Analyzer */
+
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+}
+
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.calendar-container {
+    height: 600px;
+}
+
+.btn-copy {
+    cursor: pointer;
+}
+
+/* Time slot styles */
+.time-slot {
+    margin-bottom: 10px;
+    padding: 12px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.time-slot:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.1);
+}
+
+/* Availability indicators */
+.availability-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 5px;
+}
+
+.availability-available {
+    background-color: #28a745;
+}
+
+.availability-unavailable {
+    background-color: #dc3545;
+}
+
+.availability-partial {
+    background-color: #ffc107;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .calendar-container {
+        height: 400px;
+    }
+    
+    .btn {
+        font-size: 0.9rem;
+        padding: 0.25rem 0.5rem;
+    }
+} 

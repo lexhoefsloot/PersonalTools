@@ -1,0 +1,53 @@
+# Web Framework
+Flask==2.3.3
+Flask-RESTful==0.3.10
+Werkzeug==2.3.7
+
+# Google Calendar API
+google-api-python-client==2.97.0
+google-auth==2.22.0
+google-auth-oauthlib==1.0.0
+google-auth-httplib2==0.1.0
+
+# Microsoft Graph API (Office 365)
+msal==1.23.0
+requests==2.31.0
+
+# Anthropic Claude API
+anthropic==0.5.0
+
+# Image Processing
+# Use binary packages for Pillow to avoid build issues with Python 3.13
+# Install with: pip install --only-binary :all: -r requirements.txt
+Pillow==10.2.0
+numpy==1.26.0
+pytesseract==0.3.10
+
+# Frontend
+Flask-WTF==1.1.1
+WTForms==3.0.1
+
+# Utils
+python-dotenv==1.0.0
+pyperclip==1.8.2
+pyscreenshot==3.1
+python-dateutil==2.8.2
+
+# Testing
+pytest==7.4.0
+
+# New additions
+flask>=2.0.0
+python-dotenv>=0.19.0
+requests>=2.26.0
+oauthlib>=3.1.1
+requests-oauthlib>=1.3.0
+google-auth>=2.3.0
+google-auth-oauthlib>=0.4.6
+google-auth-httplib2>=0.1.0
+pyperclip>=1.8.2
+Pillow>=9.0.0
+opencv-python>=4.5.4.60
+pytesseract>=0.3.8
+numpy>=1.21.4
+python-dateutil>=2.8.2 

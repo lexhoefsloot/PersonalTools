@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Calendar Screenshot Analyzer{% endblock %}
+
+{% block head_extra %}
+<style>
+    #calendar {
+        height: 600px;
+    }
+    .time-slot {
+        margin-bottom: 8px;
+        padding: 10px;
+        border-radius: 4px;
+    }
+    .time-slot-available {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+    }
+    .time-slot-unavailable {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+    }
+    .time-slot-suggested {
+        background-color: #d1ecf1;
+        border: 1px solid #bee5eb;
+    }
+    .copy-btn {
+        cursor: pointer;
+    }
+    .calendar-source {
+        margin-bottom: 8px;
+    }
+    .calendar-source .badge {
+        margin-right: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h2 class="h5 mb-0">Your Calendar</h2>
+                <div>
+                    <button id="prev-btn" class="btn btn-sm btn-outline-primary">Previous</button>
+                    <button id="next-btn" class="btn btn-sm btn-outline-primary">Next</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="calendar-sources mb-3">
+                    <div class="calendar-source">
+                        <strong>Calendar Sources:</strong>
+                        {% if apple_connected %}
+                            <span class="badge bg-success">Apple Calendar</span>
+                        {% endif %}
+                        {% if google_connected %}
+                            <span class="badge bg-primary">Google Calendar</span>
+                        {% endif %}
+                        {% if microsoft_connected %}
+                            <span class="badge bg-secondary">Microsoft Calendar</span>
+                        {% endif %}
+                        <a href="{{ url_for('calendar.list_calendars') }}" class="btn btn-sm btn-outline-secondary ms-2">
+                            Manage Calendars
+                        </a>
+                    </div>
+                </div>
+                <div id="calendar"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <!-- Analysis results panel -->
+        <div class="card mb-4" id="analysis-panel" style="display: none;">
+            <div class="card-header">
+                <h3 class="h5 mb-0">Analysis Results</h3>
+            </div>
+            <div class="card-body">
+                <div id="analysis-results">
+                    <!-- Analysis results will be displayed here -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Time slots panel -->
+        <div class="card" id="time-slots-panel" style="display: none;">
+            <div class="card-header">
+                <h3 class="h5 mb-0"><span id="time-slots-title">Time Slots</span></h3>
+            </div>
+            <div class="card-body">
+                <div id="time-slots-container">
+                    <!-- Time slots will be displayed here -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Manual screenshot upload -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h3 class="h5 mb-0">Upload Screenshot</h3>
+            </div>
+            <div class="card-body">
+                <p class="small">Upload a screenshot of a conversation with meeting time suggestions:</p>
+                <form action="{{ url_for('screenshot.upload_screenshot') }}" method="post" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <input type="file" class="form-control form-control-sm" name="screenshot" accept="image/*" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm">Analyze Screenshot</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize FullCalendar
+        const calendarEl = document.getElementById('calendar');
+        const calendar = new FullCalendar.Calendar(calendarEl, {
+            initialView: 'timeGridWeek',
+            headerToolbar: {
+                left: 'today',
+                center: 'title',
+                right: ''
+            },
+            height: '100%',
+            nowIndicator: true,
+            allDaySlot: false,
+            slotMinTime: '08:00:00',
+            slotMaxTime: '20:00:00',
+            events: [],
+            eventClick: function(info) {
+                // Show event details
+                alert(info.event.title);
+            }
+        });
+        calendar.render();
+        
+        // Navigation buttons
+        document.getElementById('prev-btn').addEventListener('click', function() {
+            calendar.prev();
+        });
+        
+        document.getElementById('next-btn').addEventListener('click', function() {
+            calendar.next();
+        });
+        
+        // WebSocket connection for real-time updates
+        // This is a placeholder for handling screenshot analysis results
+        
+        // Mock function to display analysis results (replace with WebSocket handling)
+        window.displayAnalysisResults = function(results) {
+            // Show analysis panel
+            document.getElementById('analysis-panel').style.display = 'block';
+            
+            // Display analysis results
+            const analysisResultsEl = document.getElementById('analysis-results');
+            analysisResultsEl.innerHTML = `<p>${results.analysis}</p>`;
+            
+            // Show time slots panel
+            document.getElementById('time-slots-panel').style.display = 'block';
+            
+            // Set title based on whether it's a suggestion or request
+            const timeSlotsTitle = document.getElementById('time-slots-title');
+            timeSlotsTitle.textContent = results.is_suggestion ? 'Suggested Time Slots' : 'Available Time Slots';
+            
+            // Display time slots
+            const timeSlotsContainer = document.getElementById('time-slots-container');
+            timeSlotsContainer.innerHTML = '';
+            
+            if (results.is_suggestion) {
+                // Display suggested time slots with availability
+                const availability = results.availability || {};
+                
+                Object.keys(availability).forEach(slotKey => {
+                    const slot = availability[slotKey];
+                    const isAvailable = slot.available;
+                    
+                    const slotEl = document.createElement('div');
+                    slotEl.className = `time-slot ${isAvailable ? 'time-slot-available' : 'time-slot-unavailable'}`;
+                    
+                    let slotHtml = `
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${slotKey}</strong>
+                                <div>${slot.context || ''}</div>
+                                <div class="mt-1">${isAvailable ? '<span class="text-success">✓ Available</span>' : '<span class="text-danger">✗ Unavailable</span>'}</div>
+                            </div>
+                            <div>
+                                <button class="btn btn-sm btn-outline-primary copy-btn" data-slot="${slotKey}">
+                                    <i class="bi bi-clipboard"></i> Copy
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    
+                    if (!isAvailable && slot.conflicts.length > 0) {
+                        slotHtml += '<div class="mt-2"><strong>Conflicts:</strong><ul class="mb-0 ps-3">';
+                        slot.conflicts.forEach(conflict => {
+                            slotHtml += `<li>${conflict.title}</li>`;
+                        });
+                        slotHtml += '</ul></div>';
+                    }
+                    
+                    slotEl.innerHTML = slotHtml;
+                    timeSlotsContainer.appendChild(slotEl);
+                    
+                    // Add event to calendar
+                    calendar.addEvent({
+                        title: isAvailable ? '✓ Suggested' : '✗ Suggested',
+                        start: slot.start,
+                        end: slot.end,
+                        backgroundColor: isAvailable ? '#28a745' : '#dc3545',
+                        borderColor: isAvailable ? '#28a745' : '#dc3545'
+                    });
+                });
+            } else {
+                // Display available time slots
+                const availableSlots = results.available_slots || [];
+                
+                if (availableSlots.length === 0) {
+                    timeSlotsContainer.innerHTML = '<p>No available time slots found.</p>';
+                } else {
+                    availableSlots.forEach(slot => {
+                        const slotEl = document.createElement('div');
+                        slotEl.className = 'time-slot time-slot-suggested';
+                        
+                        const start = new Date(slot.start);
+                        const end = new Date(slot.end);
+                        const formattedSlot = `${start.toLocaleDateString()} ${start.toLocaleTimeString()} - ${end.toLocaleTimeString()}`;
+                        
+                        slotEl.innerHTML = `
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong>${formattedSlot}</strong>
+                                </div>
+                                <div>
+                                    <button class="btn btn-sm btn-outline-primary copy-btn" data-slot="${formattedSlot}">
+                                        <i class="bi bi-clipboard"></i> Copy
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                        
+                        timeSlotsContainer.appendChild(slotEl);
+                        
+                        // Add event to calendar
+                        calendar.addEvent({
+                            title: 'Suggested',
+                            start: slot.start,
+                            end: slot.end,
+                            backgroundColor: '#17a2b8',
+                            borderColor: '#17a2b8'
+                        });
+                    });
+                }
+            }
+            
+            // Add copy functionality
+            document.querySelectorAll('.copy-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const textToCopy = this.getAttribute('data-slot');
+                    navigator.clipboard.writeText(textToCopy)
+                        .then(() => {
+                            const originalText = this.innerHTML;
+                            this.innerHTML = '<i class="bi bi-check"></i> Copied!';
+                            setTimeout(() => {
+                                this.innerHTML = originalText;
+                            }, 2000);
+                        })
+                        .catch(err => {
+                            console.error('Could not copy text: ', err);
+                        });
+                });
+            });
+        };
+    });
+</script>
+{% endblock %} 

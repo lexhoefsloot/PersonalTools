@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Calendar Screenshot Analyzer{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card mb-4">
+            <div class="card-body text-center py-5">
+                <h1 class="display-5 fw-bold mb-4">Calendar Screenshot Analyzer</h1>
+                <p class="lead mb-4">
+                    Quickly analyze meeting time suggestions from screenshots, check your availability,
+                    and find the best time slots across your calendars.
+                </p>
+                <div class="d-grid gap-2 d-md-flex justify-content-md-center">
+                    <button type="button" class="btn btn-primary btn-lg px-4 me-md-2" id="clipboardBtn">
+                        <i class="bi bi-clipboard me-2"></i>Analyze from Clipboard
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-lg px-4" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                        <i class="bi bi-upload me-2"></i>Upload Screenshot
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="h5 mb-0">How it works</h2>
+            </div>
+            <div class="card-body">
+                <div class="row g-4">
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <i class="bi bi-image text-primary" style="font-size: 2.5rem;"></i>
+                            <h3 class="h5 mt-3">1. Upload Screenshot</h3>
+                            <p class="small text-muted">
+                                Copy a screenshot to your clipboard or upload an image of emails or chat messages with suggested meeting times.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <i class="bi bi-calendar-check text-primary" style="font-size: 2.5rem;"></i>
+                            <h3 class="h5 mt-3">2. Analyze Times</h3>
+                            <p class="small text-muted">
+                                The app will detect dates and times from the image and check against your connected calendars.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <i class="bi bi-check-circle text-primary" style="font-size: 2.5rem;"></i>
+                            <h3 class="h5 mt-3">3. See Availability</h3>
+                            <p class="small text-muted">
+                                View which suggested times work with your schedule and get alternative options if needed.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if not (session.get('selected_calendars') or platform.system() == 'Darwin') %}
+        <div class="alert alert-warning mt-4">
+            <h4 class="alert-heading">Connect your calendars</h4>
+            <p>
+                You haven't connected any calendars yet. Connect to your calendar service to check availability.
+            </p>
+            <hr>
+            <div class="d-flex justify-content-end gap-2">
+                {% if platform.system() == 'Darwin' %}
+                    <a href="{{ url_for('calendar.manage_calendars') }}" class="btn btn-success">
+                        <i class="bi bi-apple me-2"></i>Use Apple Calendar
+                    </a>
+                {% endif %}
+                <a href="{{ url_for('auth.google_authorize') }}" class="btn btn-primary">
+                    <i class="bi bi-google me-2"></i>Connect Google Calendar
+                </a>
+                <a href="{{ url_for('auth.microsoft_authorize') }}" class="btn btn-secondary">
+                    <i class="bi bi-microsoft me-2"></i>Connect Microsoft Calendar
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Upload Modal -->
+<div class="modal fade" id="uploadModal" tabindex="-1" aria-labelledby="uploadModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="uploadModalLabel">Upload Screenshot</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{{ url_for('screenshot.upload_screenshot') }}" method="post" enctype="multipart/form-data">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="screenshotFile" class="form-label">Select screenshot image</label>
+                        <input class="form-control" type="file" id="screenshotFile" name="screenshot" accept="image/*" required>
+                    </div>
+                    <p class="text-muted small">
+                        Upload an image containing suggested meeting times from an email, chat, or other source.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Analyze</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Clipboard button functionality
+        document.getElementById('clipboardBtn').addEventListener('click', function() {
+            // Create a form to submit
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '{{ url_for("screenshot.analyze_clipboard") }}';
+            
+            // Add a hidden input for the clipboard flag
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'clipboard';
+            input.value = 'true';
+            form.appendChild(input);
+            
+            // Append form to body and submit
+            document.body.appendChild(form);
+            form.submit();
+        });
+    });
+</script>
+{% endblock %} 
