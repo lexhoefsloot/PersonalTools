@@ -37,17 +37,27 @@ def check_network_connectivity():
     
     # Try a simple HTTP request to check if we can reach the service
     try:
-        response = urllib.request.urlopen('https://api.anthropic.com', timeout=5)
-        # 404 is the expected response for the root endpoint (no specific path)
-        if response.status in [404, 200, 403]:
-            results.append({"message": "HTTP connectivity test successful", "type": "success"})
-        else:
-            results.append({"message": f"Unexpected HTTP response: {response.status}", "type": "warning"})
-            # Still consider this a success since we got some response
-            results.append({"message": "Network appears to be working despite unexpected response", "type": "info"})
-    except Exception as e:
-        results.append({"message": f"HTTP connectivity test failed: {str(e)}", "type": "error"})
+        # Use urllib.request with a context manager to ensure proper cleanup
+        req = urllib.request.Request('https://api.anthropic.com')
+        try:
+            with urllib.request.urlopen(req, timeout=5) as response:
+                status = response.status
+                results.append({"message": f"HTTP connectivity test successful (status: {status})", "type": "success"})
+        except urllib.error.HTTPError as http_err:
+            # HTTP errors like 404, 403 mean the server is reachable but returned an error
+            # This is actually a success for connectivity testing
+            status = http_err.code
+            results.append({"message": f"HTTP connectivity test successful (status: {status})", "type": "success"})
+            results.append({"message": "Received HTTP error code, but this confirms API is reachable", "type": "info"})
+    except urllib.error.URLError as url_err:
+        # URL errors indicate network issues
+        results.append({"message": f"HTTP connectivity test failed: {str(url_err)}", "type": "error"})
         results.append({"message": "API may be down or blocked by network", "type": "info"})
+        return False, results
+    except Exception as e:
+        # Unexpected errors
+        results.append({"message": f"HTTP connectivity test failed with unexpected error: {str(e)}", "type": "error"})
+        results.append({"message": "Check network and proxy settings", "type": "info"})
         return False, results
     
     return True, results
@@ -293,8 +303,8 @@ Respond ONLY with the JSON. No explanations or conversation."
                 debug_logs.append({"message": f"Successfully extracted {slots_count} time slots from image", "type": "success"})
                 return {
                     "success": True,
-                    "slots": result.get("slots", []),
-                    "type": "time_slots",
+                    "time_slots": result.get("slots", []),
+                    "is_suggestion": True,
                     "debug_logs": debug_logs
                 }
             elif result.get("type") == "availability_request":
@@ -304,6 +314,8 @@ Respond ONLY with the JSON. No explanations or conversation."
                     "success": True,
                     "message": result.get("message", "Availability request detected"),
                     "type": "availability_request",
+                    "time_slots": [],
+                    "is_suggestion": False,
                     "debug_logs": debug_logs
                 }
             else:
