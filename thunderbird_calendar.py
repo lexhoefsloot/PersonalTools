@@ -57,6 +57,53 @@ def check_if_calendar_db(db_path):
     except sqlite3.Error:
         return False
 
+def examine_database(db_path):
+    """Examine database structure to help debugging"""
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Get all tables
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+        
+        print(f"\nDatabase at {db_path} contains {len(tables)} tables:")
+        
+        for table in tables:
+            table_name = table[0]
+            print(f"\n* Table: {table_name}")
+            
+            # Get table schema
+            cursor.execute(f"PRAGMA table_info({table_name});")
+            columns = cursor.fetchall()
+            print("  Columns:")
+            for col in columns:
+                col_id, col_name, col_type, col_notnull, col_default, col_pk = col
+                print(f"    - {col_name} ({col_type})")
+            
+            # Get row count
+            cursor.execute(f"SELECT COUNT(*) FROM {table_name};")
+            row_count = cursor.fetchone()[0]
+            print(f"  Row count: {row_count}")
+            
+            # Get sample data if there are rows
+            if row_count > 0:
+                cursor.execute(f"SELECT * FROM {table_name} LIMIT 1;")
+                sample = cursor.fetchone()
+                print("  Sample data (first row):")
+                for i, col in enumerate(columns):
+                    col_name = col[1]
+                    if i < len(sample):  # Ensure we don't go out of bounds
+                        sample_value = sample[i]
+                        # Truncate long values
+                        if isinstance(sample_value, str) and len(sample_value) > 50:
+                            sample_value = sample_value[:47] + "..."
+                        print(f"    - {col_name}: {sample_value}")
+        
+        conn.close()
+    except sqlite3.Error as e:
+        print(f"Error examining database: {e}")
+
 def find_all_calendar_databases():
     """Find all possible calendar databases"""
     profiles = find_thunderbird_profiles()
@@ -93,6 +140,9 @@ def get_thunderbird_calendar_events():
     
     print(f"Using calendar database: {calendar_db}")
     
+    # Examine database structure for debugging
+    examine_database(calendar_db)
+    
     try:
         conn = sqlite3.connect(calendar_db)
         cursor = conn.cursor()
@@ -100,40 +150,44 @@ def get_thunderbird_calendar_events():
         # Get today's date
         today = date.today()
         
-        # Query for events today
-        query = """
-        SELECT 
-            item_title,
-            item_start_date,
-            item_end_date,
-            item_location
-        FROM cal_items
-        WHERE date(item_start_date) = date(?)
-        ORDER BY item_start_date
-        """
-        
-        cursor.execute(query, (today.isoformat(),))
-        events = cursor.fetchall()
-        
-        if not events:
-            print(f"No events found for today ({today.strftime('%A, %B %d, %Y')})")
-            return
-        
-        print(f"\nEvents for {today.strftime('%A, %B %d, %Y')}:")
-        print("-" * 50)
-        
-        for event in events:
-            title, start, end, location = event
-            try:
-                start_time = datetime.fromisoformat(start).strftime("%I:%M %p")
-                end_time = datetime.fromisoformat(end).strftime("%I:%M %p")
-            except ValueError:
-                # Handle all-day events
-                start_time = "All day"
-                end_time = "All day"
+        # Query for events today - but first check if cal_items exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cal_items';")
+        if cursor.fetchone():
+            query = """
+            SELECT 
+                item_title,
+                item_start_date,
+                item_end_date,
+                item_location
+            FROM cal_items
+            WHERE date(item_start_date) = date(?)
+            ORDER BY item_start_date
+            """
             
-            location_str = f" at {location}" if location else ""
-            print(f"{start_time} - {end_time}: {title}{location_str}")
+            cursor.execute(query, (today.isoformat(),))
+            events = cursor.fetchall()
+            
+            if not events:
+                print(f"No events found for today ({today.strftime('%A, %B %d, %Y')})")
+                return
+            
+            print(f"\nEvents for {today.strftime('%A, %B %d, %Y')}:")
+            print("-" * 50)
+            
+            for event in events:
+                title, start, end, location = event
+                try:
+                    start_time = datetime.fromisoformat(start).strftime("%I:%M %p")
+                    end_time = datetime.fromisoformat(end).strftime("%I:%M %p")
+                except ValueError:
+                    # Handle all-day events
+                    start_time = "All day"
+                    end_time = "All day"
+                
+                location_str = f" at {location}" if location else ""
+                print(f"{start_time} - {end_time}: {title}{location_str}")
+        else:
+            print("Table 'cal_items' does not exist. Please check the database structure output above.")
         
         conn.close()
         
