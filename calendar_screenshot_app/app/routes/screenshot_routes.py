@@ -659,27 +659,58 @@ def api_status():
             start_time = time.time()
             
             # Simple request to test the API
-            response = client.messages.create(
-                model="claude-3-5-sonnet-20240620",
-                max_tokens=10,
-                messages=[{"role": "user", "content": "Say hello"}]
-            )
-            
-            duration = time.time() - start_time
-            
-            api_access = {
-                "success": True, 
-                "message": f"API access successful (response time: {duration:.2f}s)",
-                "model": "claude-3-5-sonnet-20240620",
-                "response": response.content[0].text if response.content else "No content"
-            }
-            
-            debug_logs.append({"message": api_access["message"], "type": "success"})
-            debug_logs.append({"message": f"API response: {api_access['response']}", "type": "info"})
-            
+            try:
+                debug_logs.append({"message": "Sending test request to Claude API...", "type": "info"})
+                response = client.messages.create(
+                    model="claude-3-5-sonnet-20240620",
+                    max_tokens=10,
+                    messages=[{"role": "user", "content": "Say hello"}]
+                )
+                
+                duration = time.time() - start_time
+                
+                api_access = {
+                    "success": True, 
+                    "message": f"API access successful (response time: {duration:.2f}s)",
+                    "model": "claude-3-5-sonnet-20240620",
+                    "response": response.content[0].text if response.content else "No content"
+                }
+                
+                debug_logs.append({"message": api_access["message"], "type": "success"})
+                debug_logs.append({"message": f"API response: {api_access['response']}", "type": "info"})
+                
+            except anthropic.APIError as api_error:
+                error_code = getattr(api_error, 'status_code', 'unknown')
+                error_type = getattr(api_error, 'type', 'unknown')
+                error_message = str(api_error)
+                
+                debug_logs.append({"message": f"API error (status {error_code}, type {error_type}): {error_message}", "type": "error"})
+                
+                if error_code == 401:
+                    debug_logs.append({"message": "Authentication failed. Your API key may be invalid or expired.", "type": "error"})
+                elif error_code == 429:
+                    debug_logs.append({"message": "Rate limit exceeded. Your account may be out of credits or over quota.", "type": "error"})
+                elif error_code == 400:
+                    debug_logs.append({"message": "Bad request. There might be an issue with the API parameters.", "type": "error"})
+                elif error_code in [500, 502, 503, 504]:
+                    debug_logs.append({"message": "Server error. The Claude API may be experiencing issues.", "type": "error"})
+                
+                api_access = {"success": False, "message": error_message}
+                
+            except anthropic.APIConnectionError as conn_error:
+                debug_logs.append({"message": f"API connection error: {str(conn_error)}", "type": "error"})
+                debug_logs.append({"message": "This might be due to network issues or the API being down.", "type": "info"})
+                api_access = {"success": False, "message": f"Connection error: {str(conn_error)}"}
+                
+            except anthropic.RateLimitError as rate_error:
+                debug_logs.append({"message": f"Rate limit error: {str(rate_error)}", "type": "error"})
+                debug_logs.append({"message": "Your account may be out of credits or over quota.", "type": "info"})
+                api_access = {"success": False, "message": f"Rate limit exceeded: {str(rate_error)}"}
+                
         except Exception as e:
+            debug_logs.append({"message": f"Error setting up API client: {str(e)}", "type": "error"})
+            debug_logs.append({"message": "Check if the anthropic package is installed correctly.", "type": "info"})
             api_access = {"success": False, "message": str(e)}
-            debug_logs.append({"message": f"API access failed: {str(e)}", "type": "error"})
     
     # Return the status information
     status_result = {

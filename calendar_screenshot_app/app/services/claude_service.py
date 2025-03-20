@@ -38,10 +38,13 @@ def check_network_connectivity():
     # Try a simple HTTP request to check if we can reach the service
     try:
         response = urllib.request.urlopen('https://api.anthropic.com', timeout=5)
-        if response.status == 404:  # Expected response for path /
+        # 404 is the expected response for the root endpoint (no specific path)
+        if response.status in [404, 200, 403]:
             results.append({"message": "HTTP connectivity test successful", "type": "success"})
         else:
             results.append({"message": f"Unexpected HTTP response: {response.status}", "type": "warning"})
+            # Still consider this a success since we got some response
+            results.append({"message": "Network appears to be working despite unexpected response", "type": "info"})
     except Exception as e:
         results.append({"message": f"HTTP connectivity test failed: {str(e)}", "type": "error"})
         results.append({"message": "API may be down or blocked by network", "type": "info"})
