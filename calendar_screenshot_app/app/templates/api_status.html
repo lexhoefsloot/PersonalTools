@@ -137,6 +137,13 @@
     </div>
 </div>
 
+<!-- Pass debug logs data to JavaScript -->
+{% if result.debug_logs %}
+<script id="debug-logs-data" type="application/json">
+{{ result.debug_logs|tojson }}
+</script>
+{% endif %}
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Expand all logs button
@@ -151,11 +158,17 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Add logs to debug console
-    {% if result.debug_logs %}
-        {% for log in result.debug_logs %}
-            addDebugEntry("{{ log.message|safe }}", "{{ log.type }}");
-        {% endfor %}
-    {% endif %}
+    var debugLogsElement = document.getElementById('debug-logs-data');
+    if (debugLogsElement) {
+        try {
+            var debugLogs = JSON.parse(debugLogsElement.textContent);
+            debugLogs.forEach(function(log) {
+                addDebugEntry(log.message, log.type);
+            });
+        } catch (e) {
+            console.error("Error parsing debug logs:", e);
+        }
+    }
 });
 </script>
 {% endblock %} 

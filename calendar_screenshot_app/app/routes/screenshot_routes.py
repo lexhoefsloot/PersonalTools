@@ -634,17 +634,21 @@ def api_status():
     
     # Check network connectivity to Claude API
     from app.services.claude_service import check_network_connectivity
-    connectivity = check_network_connectivity()
+    connectivity_success, connectivity_results = check_network_connectivity()
     
-    if connectivity['success']:
-        debug_logs.append({"message": "Network connectivity to Claude API: OK", "type": "success"})
-    else:
-        debug_logs.append({"message": f"Network connectivity issue: {connectivity['message']}", "type": "error"})
+    # Add connectivity logs to our debug logs
+    debug_logs.extend(connectivity_results)
+    
+    # Create network status for the template
+    network_status = {
+        "success": connectivity_success,
+        "message": connectivity_results[-1]["message"] if connectivity_results else "Unknown connectivity issue"
+    }
     
     # Check API access by making a simple test request if key is available
     api_access = {"success": False, "message": "API access not tested"}
     
-    if api_key and api_key.startswith('sk-') and connectivity['success']:
+    if api_key and api_key.startswith('sk-') and connectivity_success:
         try:
             import anthropic
             import time
@@ -682,7 +686,7 @@ def api_status():
         "python": python_info,
         "packages": {"required": required_packages, "missing": missing_packages},
         "api_key": {"configured": bool(api_key), "valid_format": bool(api_key and api_key.startswith('sk-'))},
-        "network": connectivity,
+        "network": network_status,
         "api_access": api_access,
         "debug_logs": debug_logs
     }

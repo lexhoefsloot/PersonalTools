@@ -61,12 +61,20 @@ def validate_image(image_path):
     try:
         # Check if file exists
         if not os.path.exists(image_path):
-            return False, {"error": "Image file not found", "details": f"Path: {image_path}"}
+            return {
+                "valid": False, 
+                "message": "Image file not found", 
+                "details": f"Path: {image_path}"
+            }
             
         # Check file size
         file_size = os.path.getsize(image_path) / 1024  # KB
         if file_size < 1:  # Less than 1KB
-            return False, {"error": "Image file too small", "details": f"Size: {file_size:.2f} KB"}
+            return {
+                "valid": False, 
+                "message": "Image file too small", 
+                "details": f"Size: {file_size:.2f} KB"
+            }
             
         # Try to open the image with PIL
         try:
@@ -77,13 +85,15 @@ def validate_image(image_path):
                 
                 # Very small images are likely not useful
                 if width < 100 or height < 100:
-                    return False, {
-                        "error": "Image dimensions too small", 
+                    return {
+                        "valid": False,
+                        "message": "Image dimensions too small", 
                         "details": f"Size: {width}x{height} pixels"
                     }
                 
                 # Return success with image info
-                return True, {
+                return {
+                    "valid": True,
                     "size_kb": file_size,
                     "dimensions": f"{width}x{height}",
                     "format": format,
@@ -91,10 +101,18 @@ def validate_image(image_path):
                 }
                 
         except Exception as e:
-            return False, {"error": "Failed to open image file", "details": str(e)}
+            return {
+                "valid": False, 
+                "message": "Failed to open image file", 
+                "details": str(e)
+            }
             
     except Exception as e:
-        return False, {"error": "Image validation failed", "details": str(e)}
+        return {
+            "valid": False, 
+            "message": "Image validation failed", 
+            "details": str(e)
+        }
 
 def analyze_screenshot(screenshot_path):
     """Analyze screenshot using Claude API to extract time slots and meeting information"""
@@ -114,13 +132,15 @@ def analyze_screenshot(screenshot_path):
         }
 
     # Check network connectivity
-    connectivity = check_network_connectivity()
-    if not connectivity['success']:
-        logger.error(f"Network connectivity check failed: {connectivity['message']}")
-        debug_logs.append({"message": f"Network connectivity check failed: {connectivity['message']}", "type": "error"})
+    connectivity_success, connectivity_logs = check_network_connectivity()
+    debug_logs.extend(connectivity_logs)
+    
+    if not connectivity_success:
+        connectivity_message = connectivity_logs[-1]["message"] if connectivity_logs else "Unknown connectivity issue"
+        logger.error(f"Network connectivity check failed: {connectivity_message}")
         return {
             "success": False,
-            "message": f"Network connectivity issue: {connectivity['message']}. Please check your internet connection.",
+            "message": f"Network connectivity issue: {connectivity_message}. Please check your internet connection.",
             "debug_logs": debug_logs
         }
 
