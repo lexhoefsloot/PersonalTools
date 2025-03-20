@@ -9,7 +9,7 @@ import time
 import socket
 import urllib.request
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import requests
 
 # Set up logging
@@ -395,18 +395,29 @@ def analyze_screenshot(image_data, debug_logs=None):
                         try:
                             slot["start_time"] = datetime.fromisoformat(slot["start_time"].replace("Z", "+00:00"))
                             slot["end_time"] = datetime.fromisoformat(slot["end_time"].replace("Z", "+00:00"))
+                            
+                            # Ensure timezone information is present
+                            if slot["start_time"].tzinfo is None:
+                                slot["start_time"] = slot["start_time"].replace(tzinfo=timezone.utc)
+                            if slot["end_time"].tzinfo is None:
+                                slot["end_time"] = slot["end_time"].replace(tzinfo=timezone.utc)
                         except ValueError as e:
                             debug_logs.append({
                                 "message": f"Error parsing datetime: {str(e)}",
                                 "type": "error"
                             })
                             # Set default values if parsing fails
-                            slot["start_time"] = datetime.now()
-                            slot["end_time"] = datetime.now() + timedelta(hours=1)
+                            now = datetime.now(timezone.utc)
+                            slot["start_time"] = now
+                            slot["end_time"] = now + timedelta(hours=1)
                         
                         # Ensure conflicts is always a list
                         if "conflicts" not in slot:
                             slot["conflicts"] = []
+                        
+                        # If available is None, default to True
+                        if slot["available"] is None:
+                            slot["available"] = True
                 
                 # Return the parsed result with debug logs
                 result["success"] = True

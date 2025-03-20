@@ -4,7 +4,7 @@ import logging
 import traceback
 import platform
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
 from app.services import claude_service
 from app.services.availability import check_availability, find_available_slots
@@ -134,6 +134,14 @@ def upload_screenshot():
             }
             return render_template('analysis_results.html', result=error_result)
         
+        # Ensure time slots have timezone information
+        for slot in time_slots:
+            # Make timezone-aware if they're naive
+            if slot['start_time'].tzinfo is None:
+                slot['start_time'] = slot['start_time'].replace(tzinfo=timezone.utc)
+            if slot['end_time'].tzinfo is None:
+                slot['end_time'] = slot['end_time'].replace(tzinfo=timezone.utc)
+        
         # Find the earliest start time and latest end time from all slots
         earliest_start = min(slot['start_time'] for slot in result['time_slots'])
         latest_end = max(slot['end_time'] for slot in result['time_slots'])
@@ -159,8 +167,8 @@ def upload_screenshot():
                 slot['available'] = True
                 
                 for event in all_events:
-                    event_start = event['start'] if isinstance(event['start'], datetime) else datetime.fromisoformat(event['start'])
-                    event_end = event['end'] if isinstance(event['end'], datetime) else datetime.fromisoformat(event['end'])
+                    event_start = event['start']
+                    event_end = event['end']
                     
                     # Check for overlap: if start_time < event_end and end_time > event_start
                     if slot['start_time'] < event_end and slot['end_time'] > event_start:
@@ -169,6 +177,8 @@ def upload_screenshot():
             except Exception as e:
                 slot['available'] = False
                 slot['error'] = str(e)
+                print(f"ERROR checking availability for slot {slot['start_time']}: {str(e)}")
+                debug_logs.append({"message": f"Error checking availability for slot: {str(e)}", "type": "error"})
         
         # Find available slots
         suggested_slots = find_alternative_slots(result['time_slots'], all_events)
@@ -242,6 +252,14 @@ def analyze_screenshot_route():
         if result.get('success') and 'time_slots' in result:
             time_slots = result.get('time_slots', [])
             
+            # Ensure time slots have timezone information
+            for slot in time_slots:
+                # Make timezone-aware if they're naive
+                if slot['start_time'].tzinfo is None:
+                    slot['start_time'] = slot['start_time'].replace(tzinfo=timezone.utc)
+                if slot['end_time'].tzinfo is None:
+                    slot['end_time'] = slot['end_time'].replace(tzinfo=timezone.utc)
+            
             # Merge user's events from all selected calendars
             all_events = get_all_calendar_events(selected_calendars)
             
@@ -274,7 +292,7 @@ def analyze_screenshot_route():
                             'start': event_start,
                             'end': event_end
                         })
-                        
+            
             # If it's a time request (not suggestion), find alternative slots
             if 'is_suggestion' in result and not result['is_suggestion']:
                 suggested_slots = find_alternative_slots(time_slots, all_events)
@@ -397,6 +415,14 @@ def analyze_clipboard():
         if result.get('success') and 'time_slots' in result:
             time_slots = result.get('time_slots', [])
             
+            # Ensure time slots have timezone information
+            for slot in time_slots:
+                # Make timezone-aware if they're naive
+                if slot['start_time'].tzinfo is None:
+                    slot['start_time'] = slot['start_time'].replace(tzinfo=timezone.utc)
+                if slot['end_time'].tzinfo is None:
+                    slot['end_time'] = slot['end_time'].replace(tzinfo=timezone.utc)
+            
             # Merge user's events from all selected calendars
             all_events = get_all_calendar_events(selected_calendars)
             
@@ -417,18 +443,22 @@ def analyze_clipboard():
                     event_start = event['start']
                     event_end = event['end']
                     
-                    # Check if event overlaps with slot
-                    if ((event_start <= slot_start < event_end) or
-                        (event_start < slot_end <= event_end) or
-                        (slot_start <= event_start and event_end <= slot_end)):
-                        
-                        # Mark as unavailable and add to conflicts
-                        slot['available'] = False
-                        slot['conflicts'].append({
-                            'title': event['title'],
-                            'start': event_start,
-                            'end': event_end
-                        })
+                    try:
+                        # Check if event overlaps with slot
+                        if ((event_start <= slot_start < event_end) or
+                            (event_start < slot_end <= event_end) or
+                            (slot_start <= event_start and event_end <= slot_end)):
+                            
+                            # Mark as unavailable and add to conflicts
+                            slot['available'] = False
+                            slot['conflicts'].append({
+                                'title': event['title'],
+                                'start': event_start,
+                                'end': event_end
+                            })
+                    except Exception as e:
+                        print(f"ERROR checking conflict for event {event['title']}: {str(e)}")
+                        debug_logs.append({"message": f"Error checking conflict: {str(e)}", "type": "error"})
             
             # If it's a time request (not suggestion), find alternative slots
             if 'is_suggestion' in result and not result['is_suggestion']:
@@ -982,12 +1012,22 @@ def get_all_calendar_events(selected_calendars, start_date=None, end_date=None):
         except Exception as e:
             print(f"Error getting Microsoft events: {e}")
     
-    # Convert any string dates to datetime objects for consistency
+    # Ensure all datetime objects have consistent timezone information
     for event in all_events:
+        # Convert string dates to datetime objects
         if isinstance(event['start'], str):
             event['start'] = datetime.fromisoformat(event['start'].replace('Z', '+00:00'))
         if isinstance(event['end'], str):
             event['end'] = datetime.fromisoformat(event['end'].replace('Z', '+00:00'))
+        
+        # Make timezone-aware if they're naive
+        if event['start'].tzinfo is None:
+            # Use UTC as default timezone for naive datetimes
+            from datetime import timezone
+            event['start'] = event['start'].replace(tzinfo=timezone.utc)
+        if event['end'].tzinfo is None:
+            from datetime import timezone
+            event['end'] = event['end'].replace(tzinfo=timezone.utc)
     
     return all_events
 
@@ -1007,30 +1047,59 @@ def find_alternative_slots(time_slots, all_events, buffer_minutes=15):
     # In a real implementation, you would use more sophisticated logic
     suggested_slots = []
     
-    # For now, just suggest times 1 hour later than requested slots
-    for slot in time_slots:
-        if not slot['available']:
-            new_start = slot['start_time'] + timedelta(hours=1)
-            new_end = slot['end_time'] + timedelta(hours=1)
-            
-            # Check if this new slot is available
-            is_available = True
-            for event in all_events:
-                event_start = event['start']
-                event_end = event['end']
+    try:
+        # Ensure we're working with timezone-aware datetimes
+        from datetime import timezone
+        
+        # For now, just suggest times 1 hour later than requested slots
+        for slot in time_slots:
+            if not slot['available']:
+                # Ensure slot times are timezone-aware
+                start_time = slot['start_time']
+                end_time = slot['end_time']
                 
-                if ((event_start <= new_start < event_end) or
-                    (event_start < new_end <= event_end) or
-                    (new_start <= event_start and event_end <= new_end)):
-                    is_available = False
-                    break
-            
-            if is_available:
-                suggested_slots.append({
-                    'start_time': new_start,
-                    'end_time': new_end,
-                    'available': True,
-                    'conflicts': []
-                })
+                if start_time.tzinfo is None:
+                    start_time = start_time.replace(tzinfo=timezone.utc)
+                if end_time.tzinfo is None:
+                    end_time = end_time.replace(tzinfo=timezone.utc)
+                
+                # Create a new slot 1 hour later
+                new_start = start_time + timedelta(hours=1)
+                new_end = end_time + timedelta(hours=1)
+                
+                # Check if this new slot is available
+                is_available = True
+                for event in all_events:
+                    event_start = event['start']
+                    event_end = event['end']
+                    
+                    # Ensure event times are timezone-aware
+                    if event_start.tzinfo is None:
+                        event_start = event_start.replace(tzinfo=timezone.utc)
+                    if event_end.tzinfo is None:
+                        event_end = event_end.replace(tzinfo=timezone.utc)
+                    
+                    try:
+                        # Check if new slot overlaps with existing event
+                        if ((event_start <= new_start < event_end) or
+                            (event_start < new_end <= event_end) or
+                            (new_start <= event_start and event_end <= new_end)):
+                            is_available = False
+                            break
+                    except Exception as e:
+                        print(f"Error checking availability for alternative slot: {str(e)}")
+                        is_available = False
+                        break
+                
+                if is_available:
+                    suggested_slots.append({
+                        'start_time': new_start,
+                        'end_time': new_end,
+                        'available': True,
+                        'conflicts': [],
+                        'context': f"Alternative to {start_time.strftime('%A, %b %d %I:%M %p')}"
+                    })
+    except Exception as e:
+        print(f"Error finding alternative slots: {str(e)}")
     
     return suggested_slots 
