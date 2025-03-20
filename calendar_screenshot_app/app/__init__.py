@@ -52,20 +52,26 @@ def create_app(test_config=None):
         
         # Check for Thunderbird calendar availability
         is_thunderbird_available = False
-        thunderbird_profile_paths = [
-            os.path.expanduser("~/.thunderbird/*/"),
-            os.path.expanduser("~/.icedove/*/"),  # Debian's fork of Thunderbird
-            os.path.expanduser("~/.mozilla-thunderbird/*/"),  # Older versions
-            os.path.expanduser("~/.local/share/thunderbird/*/"),
-            os.path.expanduser("~/Library/Thunderbird/Profiles/*/")  # macOS
-        ]
-        
-        for path_pattern in thunderbird_profile_paths:
-            profiles = glob.glob(path_pattern)
-            for profile in profiles:
-                if os.path.exists(os.path.join(profile, "calendar-data")):
-                    is_thunderbird_available = True
-                    break
+        try:
+            from app.services.thunderbird_calendar import find_all_calendar_databases
+            thunderbird_dbs = find_all_calendar_databases()
+            is_thunderbird_available = len(thunderbird_dbs) > 0
+        except Exception:
+            # Fall back to the old method if the import fails
+            thunderbird_profile_paths = [
+                os.path.expanduser("~/.thunderbird/*/"),
+                os.path.expanduser("~/.icedove/*/"),  # Debian's fork of Thunderbird
+                os.path.expanduser("~/.mozilla-thunderbird/*/"),  # Older versions
+                os.path.expanduser("~/.local/share/thunderbird/*/"),
+                os.path.expanduser("~/Library/Thunderbird/Profiles/*/")  # macOS
+            ]
+            
+            for path_pattern in thunderbird_profile_paths:
+                profiles = glob.glob(path_pattern)
+                for profile in profiles:
+                    if os.path.exists(os.path.join(profile, "calendar-data")):
+                        is_thunderbird_available = True
+                        break
         
         # Check authentication status for different providers
         google_connected = 'google_token' in session

@@ -32,31 +32,57 @@ def list_calendars():
         except Exception as e:
             print(f"DEBUG: Error getting Apple calendars: {str(e)}")
     
-    # Check for Thunderbird calendars
-    thunderbird_available = False
-    thunderbird_profile_paths = [
-        os.path.expanduser("~/.thunderbird/*/"),
-        os.path.expanduser("~/.icedove/*/"),  # Debian's fork of Thunderbird
-        os.path.expanduser("~/.mozilla-thunderbird/*/"),  # Older versions
-        os.path.expanduser("~/.local/share/thunderbird/*/"),
-        os.path.expanduser("~/Library/Thunderbird/Profiles/*/")  # macOS
-    ]
-    
-    for path_pattern in thunderbird_profile_paths:
-        profiles = glob.glob(path_pattern)
-        for profile in profiles:
-            if os.path.exists(os.path.join(profile, "calendar-data")):
-                thunderbird_available = True
-                break
-    
-    if thunderbird_available:
-        print("DEBUG: Attempting to get Thunderbird calendars")
-        try:
+    # Check for Thunderbird calendars using improved detection
+    print("DEBUG: Attempting to get Thunderbird calendars with improved detection")
+    try:
+        from app.services.thunderbird_calendar import find_all_calendar_databases
+        thunderbird_dbs = find_all_calendar_databases()
+        
+        if thunderbird_dbs:
             thunderbird_calendars = get_thunderbird_calendars()
             print(f"DEBUG: Found {len(thunderbird_calendars)} Thunderbird calendars")
             calendars.extend(thunderbird_calendars)
-        except Exception as e:
-            print(f"DEBUG: Error getting Thunderbird calendars: {str(e)}")
+            
+            # If no calendars are selected yet, auto-select all Thunderbird calendars
+            if ('selected_calendars' not in session or not session['selected_calendars']) and thunderbird_calendars:
+                print("DEBUG: Auto-selecting Thunderbird calendars")
+                session['selected_calendars'] = [cal['id'] for cal in thunderbird_calendars]
+                flash('Using Thunderbird calendars for availability check', 'info')
+                logging.info(f"Auto-selected {len(thunderbird_calendars)} Thunderbird calendars")
+    except Exception as e:
+        print(f"DEBUG: Error with improved Thunderbird detection: {str(e)}")
+        # Fall back to the old method
+        thunderbird_available = False
+        thunderbird_profile_paths = [
+            os.path.expanduser("~/.thunderbird/*/"),
+            os.path.expanduser("~/.icedove/*/"),  # Debian's fork of Thunderbird
+            os.path.expanduser("~/.mozilla-thunderbird/*/"),  # Older versions
+            os.path.expanduser("~/.local/share/thunderbird/*/"),
+            os.path.expanduser("~/Library/Thunderbird/Profiles/*/")  # macOS
+        ]
+        
+        for path_pattern in thunderbird_profile_paths:
+            profiles = glob.glob(path_pattern)
+            for profile in profiles:
+                if os.path.exists(os.path.join(profile, "calendar-data")):
+                    thunderbird_available = True
+                    break
+        
+        if thunderbird_available:
+            print("DEBUG: Attempting to get Thunderbird calendars with legacy method")
+            try:
+                thunderbird_calendars = get_thunderbird_calendars()
+                print(f"DEBUG: Found {len(thunderbird_calendars)} Thunderbird calendars")
+                calendars.extend(thunderbird_calendars)
+                
+                # If no calendars are selected yet, auto-select all Thunderbird calendars
+                if ('selected_calendars' not in session or not session['selected_calendars']) and thunderbird_calendars:
+                    print("DEBUG: Auto-selecting Thunderbird calendars")
+                    session['selected_calendars'] = [cal['id'] for cal in thunderbird_calendars]
+                    flash('Using Thunderbird calendars for availability check', 'info')
+                    logging.info(f"Auto-selected {len(thunderbird_calendars)} Thunderbird calendars")
+            except Exception as e:
+                print(f"DEBUG: Error getting Thunderbird calendars: {str(e)}")
     
     # Get Google calendars if authenticated
     if 'google_token' in session:
@@ -95,8 +121,37 @@ def select_calendars():
     selected_calendars = request.form.getlist('selected_calendars')
     
     if not selected_calendars:
-        flash('Please select at least one calendar', 'warning')
-        return redirect(url_for('calendar.list_calendars'))
+        # If no calendars are selected, check available calendar sources
+        calendars_found = False
+        
+        # Check for Thunderbird calendars first
+        try:
+            from app.services.thunderbird_calendar import find_all_calendar_databases, get_thunderbird_calendars
+            thunderbird_dbs = find_all_calendar_databases()
+            if thunderbird_dbs:
+                thunderbird_calendars = get_thunderbird_calendars()
+                if thunderbird_calendars:
+                    # Automatically select all Thunderbird calendars
+                    selected_calendars = [cal['id'] for cal in thunderbird_calendars]
+                    flash('Using Thunderbird calendars for availability check', 'info')
+                    calendars_found = True
+                    logging.info(f"Auto-selected {len(thunderbird_calendars)} Thunderbird calendars")
+        except Exception as e:
+            logging.warning(f"Failed to auto-detect Thunderbird calendars: {e}")
+        
+        # If no Thunderbird calendars, try Apple Calendar on macOS
+        if not calendars_found and platform.system() == 'Darwin':
+            apple_calendars = get_apple_calendars()
+            if apple_calendars:
+                # Automatically select the first Apple Calendar
+                selected_calendars = [apple_calendars[0]['id']]
+                flash('Using Apple Calendar for availability check', 'info')
+                calendars_found = True
+        
+        # If still no calendars, return an error
+        if not calendars_found:
+            flash('Please select at least one calendar', 'warning')
+            return redirect(url_for('calendar.list_calendars'))
     
     session['selected_calendars'] = selected_calendars
     flash('Calendar selection saved', 'success')

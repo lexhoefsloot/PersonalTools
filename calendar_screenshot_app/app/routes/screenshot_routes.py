@@ -126,19 +126,36 @@ def upload_screenshot():
     """Handle screenshot upload and analysis"""
     # Check if at least one calendar is selected
     if 'selected_calendars' not in session or not session['selected_calendars']:
-        # If no calendars are selected but user is on macOS, check if Apple Calendar is available
-        if platform.system() == 'Darwin':
+        # If no calendars are selected, check available calendar sources
+        calendars_found = False
+        
+        # Check for Thunderbird calendars first
+        try:
+            from app.services.thunderbird_calendar import find_all_calendar_databases, get_thunderbird_calendars
+            thunderbird_dbs = find_all_calendar_databases()
+            if thunderbird_dbs:
+                thunderbird_calendars = get_thunderbird_calendars()
+                if thunderbird_calendars:
+                    # Automatically select all Thunderbird calendars
+                    session['selected_calendars'] = [cal['id'] for cal in thunderbird_calendars]
+                    flash('Using Thunderbird calendars for availability check', 'info')
+                    calendars_found = True
+                    logger.info(f"Auto-selected {len(thunderbird_calendars)} Thunderbird calendars")
+        except Exception as e:
+            logger.warning(f"Failed to auto-detect Thunderbird calendars: {e}")
+        
+        # If no Thunderbird calendars, try Apple Calendar on macOS
+        if not calendars_found and platform.system() == 'Darwin':
             apple_calendars = get_apple_calendars()
             if apple_calendars:
                 # Automatically select the first Apple Calendar
                 session['selected_calendars'] = [apple_calendars[0]['id']]
                 flash('Using Apple Calendar for availability check', 'info')
-            else:
-                flash('Please select at least one calendar before analyzing screenshots', 'warning')
-                return redirect(url_for('calendar.list_calendars'))
-        else:
-            # Not on macOS, need to authenticate with Google or Microsoft
-            flash('Please connect to a calendar service before analyzing screenshots', 'warning')
+                calendars_found = True
+        
+        # If still no calendars, redirect to calendar selection
+        if not calendars_found:
+            flash('Please select at least one calendar before analyzing screenshots', 'warning')
             return redirect(url_for('calendar.list_calendars'))
     
     screenshot = None
@@ -313,18 +330,36 @@ def analyze_clipboard():
     
     # Check if at least one calendar is selected or if Apple Calendar is available on macOS
     if 'selected_calendars' not in session or not session['selected_calendars']:
-        # If no calendars are selected but user is on macOS, check if Apple Calendar is available
-        if platform.system() == 'Darwin':
+        # If no calendars are selected, check available calendar sources
+        calendars_found = False
+        
+        # Check for Thunderbird calendars first
+        try:
+            from app.services.thunderbird_calendar import find_all_calendar_databases, get_thunderbird_calendars
+            thunderbird_dbs = find_all_calendar_databases()
+            if thunderbird_dbs:
+                thunderbird_calendars = get_thunderbird_calendars()
+                if thunderbird_calendars:
+                    # Automatically select all Thunderbird calendars
+                    session['selected_calendars'] = [cal['id'] for cal in thunderbird_calendars]
+                    flash('Using Thunderbird calendars for availability check', 'info')
+                    calendars_found = True
+                    logger.info(f"Auto-selected {len(thunderbird_calendars)} Thunderbird calendars")
+        except Exception as e:
+            logger.warning(f"Failed to auto-detect Thunderbird calendars: {e}")
+        
+        # If no Thunderbird calendars, try Apple Calendar on macOS
+        if not calendars_found and platform.system() == 'Darwin':
             apple_calendars = get_apple_calendars()
             if apple_calendars:
                 # Automatically select the first Apple Calendar
                 session['selected_calendars'] = [apple_calendars[0]['id']]
                 flash('Using Apple Calendar for availability check', 'info')
-            else:
-                return jsonify({'error': 'Please select at least one calendar before analyzing screenshots'}), 400
-        else:
-            # Not on macOS, need to authenticate with Google or Microsoft
-            return jsonify({'error': 'Please connect to a calendar service before analyzing screenshots'}), 400
+                calendars_found = True
+        
+        # If still no calendars, return an error
+        if not calendars_found:
+            return jsonify({'error': 'Please select at least one calendar before analyzing screenshots'}), 400
     
     try:
         screenshot = ImageGrab.grabclipboard()
