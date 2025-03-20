@@ -661,6 +661,15 @@ def api_status():
             # Simple request to test the API
             try:
                 debug_logs.append({"message": "Sending test request to Claude API...", "type": "info"})
+                
+                # Print request details
+                print("\n---------- API STATUS TEST REQUEST ----------")
+                print(f"Model: claude-3-5-sonnet-20240620")
+                print(f"Prompt: 'Say hello'")
+                print(f"API Key (masked): {api_key[:5]}...{api_key[-2:]}")
+                print("---------------------------------------------\n")
+                
+                start_time = time.time()
                 response = client.messages.create(
                     model="claude-3-5-sonnet-20240620",
                     max_tokens=10,
@@ -668,6 +677,17 @@ def api_status():
                 )
                 
                 duration = time.time() - start_time
+                
+                # Print response details
+                print("\n---------- API STATUS TEST RESPONSE ----------")
+                print(f"Response time: {duration:.2f} seconds")
+                print(f"Content type: {type(response.content)}")
+                print(f"Full content: {response.content}")
+                print(f"Stop reason: {response.stop_reason}")
+                print(f"Stop sequence: {response.stop_sequence}")
+                print(f"Model: {response.model}")
+                print(f"Usage: {response.usage}")
+                print("-----------------------------------------------\n")
                 
                 api_access = {
                     "success": True, 
@@ -722,4 +742,160 @@ def api_status():
         "debug_logs": debug_logs
     }
     
-    return render_template('api_status.html', result=status_result) 
+    return render_template('api_status.html', result=status_result)
+
+@bp.route('/api_test', methods=['GET'])
+def claude_api_test():
+    """Direct test of Claude API with detailed output"""
+    debug_logs = []
+    
+    # Check API key configuration
+    api_key = os.environ.get('CLAUDE_API_KEY')
+    if not api_key:
+        debug_logs.append({"message": "CLAUDE_API_KEY environment variable not set", "type": "error"})
+        return render_template('api_status.html', result={
+            "python": f"Python {platform.python_version()} on {platform.system()}",
+            "api_key": {"configured": False, "valid_format": False},
+            "debug_logs": debug_logs
+        })
+    
+    # Basic check for key format (Claude API keys start with 'sk-')
+    if not api_key.startswith('sk-'):
+        debug_logs.append({"message": f"API key has invalid format (should start with 'sk-')", "type": "error"})
+        return render_template('api_status.html', result={
+            "python": f"Python {platform.python_version()} on {platform.system()}",
+            "api_key": {"configured": True, "valid_format": False},
+            "debug_logs": debug_logs
+        })
+        
+    # Log masked API key
+    masked_key = f"{api_key[:5]}...{api_key[-2:]}"
+    debug_logs.append({"message": f"API key found with correct format (masked: {masked_key})", "type": "success"})
+    
+    # Check network connectivity to Claude API
+    from app.services.claude_service import check_network_connectivity
+    connectivity_success, connectivity_logs = check_network_connectivity()
+    
+    # Add connectivity logs to our debug logs
+    debug_logs.extend(connectivity_logs)
+    
+    # Test API directly with detailed logs
+    try:
+        import anthropic
+        import time
+        
+        debug_logs.append({"message": "Testing Claude API access with a simple request...", "type": "info"})
+        
+        try:
+            client = anthropic.Anthropic(api_key=api_key)
+            debug_logs.append({"message": "Claude client initialized successfully", "type": "success"})
+            
+            # Print request details to console
+            print("\n---------- CLAUDE API TEST REQUEST ----------")
+            print(f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Model: claude-3-5-sonnet-20240620")
+            print(f"Max tokens: 10")
+            print(f"Prompt: 'Say hello'")
+            print(f"API Key (masked): {masked_key}")
+            print("--------------------------------------------\n")
+            
+            # Make a simple API request
+            start_time = time.time()
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20240620",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "Say hello"}]
+            )
+            
+            duration = time.time() - start_time
+            
+            # Print response details to console
+            print("\n---------- CLAUDE API TEST RESPONSE ----------")
+            print(f"Response time: {duration:.2f} seconds")
+            print(f"Type: {type(response)}")
+            print(f"Content: {response.content}")
+            print(f"Content type: {type(response.content)}")
+            if response.content and len(response.content) > 0:
+                print(f"Content[0]: {response.content[0]}")
+                print(f"Content[0].type: {response.content[0].type}")
+                print(f"Content[0].text: {response.content[0].text}")
+            print(f"ID: {response.id}")
+            print(f"Model: {response.model}")
+            print(f"Role: {response.role}")
+            print(f"Stop reason: {response.stop_reason}")
+            print(f"Usage: {response.usage}")
+            print(f"Usage tokens: {response.usage.input_tokens} input, {response.usage.output_tokens} output")
+            print("---------------------------------------------\n")
+            
+            # Add success results to logs
+            api_response = response.content[0].text if response.content and len(response.content) > 0 else "No content"
+            debug_logs.append({"message": f"API response successful (took {duration:.2f}s): '{api_response}'", "type": "success"})
+            debug_logs.append({"message": f"Input tokens: {response.usage.input_tokens}, Output tokens: {response.usage.output_tokens}", "type": "info"})
+            
+            # Return success template
+            return render_template('api_status.html', result={
+                "python": f"Python {platform.python_version()} on {platform.system()}",
+                "api_key": {"configured": True, "valid_format": True},
+                "network": {"success": connectivity_success},
+                "api_access": {
+                    "success": True,
+                    "message": f"API access successful (response time: {duration:.2f}s)",
+                    "model": "claude-3-5-sonnet-20240620",
+                    "response": api_response
+                },
+                "debug_logs": debug_logs
+            })
+            
+        except anthropic.APIError as api_err:
+            error_code = getattr(api_err, 'status_code', 'unknown')
+            error_type = getattr(api_err, 'type', 'unknown')
+            
+            print(f"\nAPI ERROR: {str(api_err)}")
+            print(f"Status code: {error_code}")
+            print(f"Error type: {error_type}")
+            print(f"Full error object: {dir(api_err)}\n")
+            
+            debug_logs.append({"message": f"API error: {str(api_err)}", "type": "error"})
+            debug_logs.append({"message": f"Error details - Status: {error_code}, Type: {error_type}", "type": "error"})
+            
+            return render_template('api_status.html', result={
+                "python": f"Python {platform.python_version()} on {platform.system()}",
+                "api_key": {"configured": True, "valid_format": True},
+                "network": {"success": connectivity_success},
+                "api_access": {
+                    "success": False,
+                    "message": f"API error: {str(api_err)}"
+                },
+                "debug_logs": debug_logs
+            })
+            
+        except Exception as e:
+            print(f"\nERROR: {str(e)}")
+            print(f"Error type: {type(e)}")
+            print(f"Error details: {dir(e)}\n")
+            
+            debug_logs.append({"message": f"Error during API test: {str(e)}", "type": "error"})
+            
+            return render_template('api_status.html', result={
+                "python": f"Python {platform.python_version()} on {platform.system()}",
+                "api_key": {"configured": True, "valid_format": True},
+                "network": {"success": connectivity_success},
+                "api_access": {
+                    "success": False,
+                    "message": f"Error: {str(e)}"
+                },
+                "debug_logs": debug_logs
+            })
+            
+    except ImportError:
+        debug_logs.append({"message": "Failed to import anthropic library", "type": "error"})
+        return render_template('api_status.html', result={
+            "python": f"Python {platform.python_version()} on {platform.system()}",
+            "api_key": {"configured": True, "valid_format": True},
+            "network": {"success": connectivity_success},
+            "api_access": {
+                "success": False,
+                "message": "Anthropic library not installed"
+            },
+            "debug_logs": debug_logs
+        }) 

@@ -194,24 +194,10 @@ def analyze_screenshot(screenshot_path):
         
         # Encode the image to base64
         b64_image = encode_image_to_base64(screenshot_path)
-        logger.info("Image encoded to base64")
+        logger.info(f"Image encoded to base64 (length: {len(b64_image)} characters)")
         
-        # Log the API call attempt
-        logger.info("Analyzing with Claude API...")
-        debug_logs.append({"message": "Analyzing with Claude API...", "type": "info"})
-        
-        # Make the API call
-        api_start_time = time.time()
-        message = client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=1000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": """
+        # Define the API request
+        prompt_text = """
 This image contains a conversation or calendar screenshot. Please extract ALL date, time, and duration information for potential meeting slots.
 
 Important instructions:
@@ -249,31 +235,96 @@ For availability requests, use:
   "message": "Requesting availability for Thursday or Friday afternoon"
 }
 
-Respond ONLY with the JSON. No explanations or conversation."
-                            """
+Respond ONLY with the JSON. No explanations or conversation."""
+
+        # Create the request messages array
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt_text
+                    },
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": b64_image
+                        }
+                    }
+                ]
+            }
+        ]
+        
+        # Log the API request (without the base64 data for brevity)
+        debug_request = {
+            "model": "claude-3-5-sonnet-20240620",
+            "max_tokens": 1000,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt_text
                         },
                         {
                             "type": "image",
                             "source": {
                                 "type": "base64",
                                 "media_type": "image/png",
-                                "data": b64_image
+                                "data": f"{b64_image[:20]}...{b64_image[-20:]}" # Truncated for logs
                             }
                         }
                     ]
                 }
             ]
+        }
+        
+        # Print full request details (except base64 data)
+        print("\n---------- ANTHROPIC API REQUEST ----------")
+        print(f"Model: claude-3-5-sonnet-20240620")
+        print(f"Max tokens: 1000")
+        print(f"Prompt: {prompt_text}")
+        print(f"Image Base64 length: {len(b64_image)} characters")
+        print("-------------------------------------------\n")
+        
+        logger.info("Analyzing with Claude API...")
+        debug_logs.append({"message": "Analyzing with Claude API...", "type": "info"})
+        debug_logs.append({"message": f"API Request: {json.dumps(debug_request)}", "type": "debug"})
+        
+        # Make the API call
+        api_start_time = time.time()
+        message = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=1000,
+            messages=messages
         )
         api_end_time = time.time()
         api_duration = api_end_time - api_start_time
+        
+        # Print full response details
+        print("\n---------- ANTHROPIC API RESPONSE ----------")
+        print(f"Response time: {api_duration:.2f} seconds")
+        print(f"Content type: {type(message.content)}")
+        print(f"Full content: {message.content}")
+        print(f"Stop reason: {message.stop_reason}")
+        print(f"Stop sequence: {message.stop_sequence}")
+        print(f"Model: {message.model}")
+        print(f"Usage: {message.usage}")
+        print("--------------------------------------------\n")
         
         # Log API response time
         logger.info(f"Claude API response received in {api_duration:.2f} seconds")
         debug_logs.append({"message": f"Claude API response received in {api_duration:.2f} seconds", "type": "info"})
         
         # For debugging purpose, log the full response content
-        logger.debug(f"Full Claude response: {message.content}")
+        logger.info(f"Full Claude response: {message.content}")
         debug_logs.append({"message": f"Raw Claude response: {message.content}", "type": "debug"})
+        debug_logs.append({"message": f"Stop reason: {message.stop_reason}", "type": "debug"})
+        debug_logs.append({"message": f"Usage: {message.usage}", "type": "debug"})
         
         # Parse the response
         try:
