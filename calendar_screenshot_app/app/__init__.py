@@ -2,6 +2,7 @@ from flask import Flask, render_template, session
 import os
 import platform
 from datetime import datetime
+import glob
 
 def create_app(test_config=None):
     # Create and configure the app
@@ -49,14 +50,32 @@ def create_app(test_config=None):
         # Check if running on macOS for Apple Calendar availability
         is_macos = platform.system() == 'Darwin'
         
+        # Check for Thunderbird calendar availability
+        is_thunderbird_available = False
+        thunderbird_profile_paths = [
+            os.path.expanduser("~/.thunderbird/*/"),
+            os.path.expanduser("~/.icedove/*/"),  # Debian's fork of Thunderbird
+            os.path.expanduser("~/.mozilla-thunderbird/*/"),  # Older versions
+            os.path.expanduser("~/.local/share/thunderbird/*/"),
+            os.path.expanduser("~/Library/Thunderbird/Profiles/*/")  # macOS
+        ]
+        
+        for path_pattern in thunderbird_profile_paths:
+            profiles = glob.glob(path_pattern)
+            for profile in profiles:
+                if os.path.exists(os.path.join(profile, "calendar-data")):
+                    is_thunderbird_available = True
+                    break
+        
         # Check authentication status for different providers
         google_connected = 'google_token' in session
         microsoft_connected = 'microsoft_token' in session
         
         return render_template('index.html',
                                using_apple_calendar=is_macos,
+                               using_thunderbird=is_thunderbird_available,
                                google_connected=google_connected,
                                microsoft_connected=microsoft_connected,
-                               authenticated=google_connected or microsoft_connected)
+                               authenticated=google_connected or microsoft_connected or is_macos or is_thunderbird_available)
 
     return app

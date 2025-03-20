@@ -2,12 +2,15 @@ from flask import Blueprint, jsonify, request, render_template, session, redirec
 from app.services.google_calendar import get_google_calendars, get_google_events
 from app.services.microsoft_calendar import get_microsoft_calendars, get_microsoft_events
 from app.services.apple_calendar import get_apple_calendars, get_apple_events
+from app.services.thunderbird_calendar import get_thunderbird_calendars, get_thunderbird_events
 from app.services.availability import check_availability, find_available_slots
 from app.utils.date_utils import parse_date_range
 import json
 import platform
 import logging
 from datetime import datetime, timedelta
+import os
+import glob
 
 bp = Blueprint('calendar', __name__, url_prefix='/calendar')
 
@@ -28,6 +31,32 @@ def list_calendars():
             calendars.extend(apple_calendars)
         except Exception as e:
             print(f"DEBUG: Error getting Apple calendars: {str(e)}")
+    
+    # Check for Thunderbird calendars
+    thunderbird_available = False
+    thunderbird_profile_paths = [
+        os.path.expanduser("~/.thunderbird/*/"),
+        os.path.expanduser("~/.icedove/*/"),  # Debian's fork of Thunderbird
+        os.path.expanduser("~/.mozilla-thunderbird/*/"),  # Older versions
+        os.path.expanduser("~/.local/share/thunderbird/*/"),
+        os.path.expanduser("~/Library/Thunderbird/Profiles/*/")  # macOS
+    ]
+    
+    for path_pattern in thunderbird_profile_paths:
+        profiles = glob.glob(path_pattern)
+        for profile in profiles:
+            if os.path.exists(os.path.join(profile, "calendar-data")):
+                thunderbird_available = True
+                break
+    
+    if thunderbird_available:
+        print("DEBUG: Attempting to get Thunderbird calendars")
+        try:
+            thunderbird_calendars = get_thunderbird_calendars()
+            print(f"DEBUG: Found {len(thunderbird_calendars)} Thunderbird calendars")
+            calendars.extend(thunderbird_calendars)
+        except Exception as e:
+            print(f"DEBUG: Error getting Thunderbird calendars: {str(e)}")
     
     # Get Google calendars if authenticated
     if 'google_token' in session:
@@ -99,13 +128,17 @@ def check_calendar_availability():
         if provider == 'google' and 'google_token' in session:
             events = get_google_events(session['google_token'], cal_id, start_date, end_date)
             all_events.extend(events)
-        
+            
         elif provider == 'microsoft' and 'microsoft_token' in session:
             events = get_microsoft_events(session['microsoft_token'], cal_id, start_date, end_date)
             all_events.extend(events)
             
         elif provider == 'apple' and platform.system() == 'Darwin':
-            events = get_apple_events(cal_id, start_date, end_date)
+            events = get_apple_events([{'id': cal_id, 'provider': 'apple'}], start_date, end_date)
+            all_events.extend(events)
+            
+        elif provider == 'thunderbird':
+            events = get_thunderbird_events([{'id': calendar_id, 'provider': 'thunderbird'}], start_date, end_date)
             all_events.extend(events)
     
     # Check availability for each time slot
@@ -145,7 +178,11 @@ def suggest_times():
             all_events.extend(events)
             
         elif provider == 'apple' and platform.system() == 'Darwin':
-            events = get_apple_events(cal_id, start_date, end_date)
+            events = get_apple_events([{'id': cal_id, 'provider': 'apple'}], start_date, end_date)
+            all_events.extend(events)
+            
+        elif provider == 'thunderbird':
+            events = get_thunderbird_events([{'id': calendar_id, 'provider': 'thunderbird'}], start_date, end_date)
             all_events.extend(events)
     
     # Find available slots
@@ -179,6 +216,11 @@ def get_events():
         apple_calendars = [cal for cal in get_apple_calendars() if cal['id'] in selected_calendars]
         if apple_calendars:
             all_events.extend(get_apple_events(apple_calendars, start_time, end_time))
+    
+    # Collect events from Thunderbird Calendar if available
+    thunderbird_calendars = [cal for cal in get_thunderbird_calendars() if cal['id'] in selected_calendars]
+    if thunderbird_calendars:
+        all_events.extend(get_thunderbird_events(thunderbird_calendars, start_time, end_time))
     
     # Collect events from Google Calendar if authenticated
     if 'google_token' in session:
