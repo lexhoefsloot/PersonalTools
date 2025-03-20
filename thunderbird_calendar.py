@@ -27,13 +27,29 @@ def find_calendar_database(profile_dir):
         os.path.join(profile_dir, "calendar-data", "local.sqlite"),
         os.path.join(profile_dir, "calendar-data", "storage.sqlite"),
         os.path.join(profile_dir, "calendar-data", "calendars.sqlite"),
-        os.path.join(profile_dir, "calendar-data", "events.sqlite")
+        os.path.join(profile_dir, "calendar-data", "events.sqlite"),
+        os.path.join(profile_dir, "calendar-data", "calendar.sqlite"),
+        os.path.join(profile_dir, "calendar.sqlite"),
+        os.path.join(profile_dir, "calendar-data", "calendar.sqlite")
     ]
     
     for location in possible_locations:
         if os.path.exists(location):
             return location
     return None
+
+def check_calendar_enabled(profile_dir):
+    """Check if calendar functionality is enabled in Thunderbird"""
+    prefs_path = os.path.join(profile_dir, "prefs.js")
+    if not os.path.exists(prefs_path):
+        return False
+    
+    try:
+        with open(prefs_path, 'r') as f:
+            prefs = f.read()
+            return '"calendar.enabled", true' in prefs
+    except Exception:
+        return False
 
 def get_thunderbird_calendar_events():
     profile_dir = find_thunderbird_profile()
@@ -44,10 +60,24 @@ def get_thunderbird_calendar_events():
     
     print(f"Found Thunderbird profile at: {profile_dir}")
     
+    # Check if calendar is enabled
+    if not check_calendar_enabled(profile_dir):
+        print("Calendar functionality appears to be disabled in Thunderbird.")
+        print("Please enable it in Thunderbird's settings:")
+        print("1. Open Thunderbird")
+        print("2. Go to Edit > Preferences")
+        print("3. Click on 'Calendar' in the left sidebar")
+        print("4. Make sure 'Enable Calendar' is checked")
+        return
+    
     calendar_db = find_calendar_database(profile_dir)
     if not calendar_db:
         print("Error: Calendar database not found")
         print("Searched in:", os.path.join(profile_dir, "calendar-data/"))
+        print("\nPlease ensure that:")
+        print("1. Calendar functionality is enabled in Thunderbird")
+        print("2. You have created at least one calendar")
+        print("3. You have added at least one event to your calendar")
         return
     
     print(f"Found calendar database at: {calendar_db}")
