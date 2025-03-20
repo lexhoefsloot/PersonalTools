@@ -11,7 +11,8 @@ def find_thunderbird_profile():
     possible_paths = [
         os.path.expanduser("~/.thunderbird/*.default"),
         os.path.expanduser("~/.thunderbird/*.default-release"),
-        os.path.expanduser("~/.thunderbird/*.default-esr")
+        os.path.expanduser("~/.thunderbird/*.default-esr"),
+        os.path.expanduser("~/.thunderbird/*.default-nightly")
     ]
     
     for path_pattern in possible_paths:
@@ -20,16 +21,36 @@ def find_thunderbird_profile():
             return matches[0]
     return None
 
+def find_calendar_database(profile_dir):
+    """Find the calendar database in various possible locations"""
+    possible_locations = [
+        os.path.join(profile_dir, "calendar-data", "local.sqlite"),
+        os.path.join(profile_dir, "calendar-data", "storage.sqlite"),
+        os.path.join(profile_dir, "calendar-data", "calendars.sqlite"),
+        os.path.join(profile_dir, "calendar-data", "events.sqlite")
+    ]
+    
+    for location in possible_locations:
+        if os.path.exists(location):
+            return location
+    return None
+
 def get_thunderbird_calendar_events():
     profile_dir = find_thunderbird_profile()
     if not profile_dir:
         print("Error: Could not find Thunderbird profile directory")
+        print("Searched in:", os.path.expanduser("~/.thunderbird/"))
         return
     
-    calendar_db = os.path.join(profile_dir, "calendar-data", "local.sqlite")
-    if not os.path.exists(calendar_db):
+    print(f"Found Thunderbird profile at: {profile_dir}")
+    
+    calendar_db = find_calendar_database(profile_dir)
+    if not calendar_db:
         print("Error: Calendar database not found")
+        print("Searched in:", os.path.join(profile_dir, "calendar-data/"))
         return
+    
+    print(f"Found calendar database at: {calendar_db}")
     
     try:
         conn = sqlite3.connect(calendar_db)
