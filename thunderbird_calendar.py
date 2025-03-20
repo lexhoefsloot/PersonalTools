@@ -1,10 +1,38 @@
 #!/usr/bin/env python3
 import os
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 import sqlite3
 import glob
 import subprocess
+import pytz
+
+def microseconds_to_datetime(microseconds, tz_name=None):
+    """Convert microseconds since epoch to datetime object"""
+    if not microseconds:
+        return None
+    
+    # Convert to seconds and create UTC datetime
+    seconds = microseconds / 1000000
+    dt = datetime.fromtimestamp(seconds, timezone.utc)
+    
+    # Convert to specified timezone if provided
+    if tz_name:
+        try:
+            tz = pytz.timezone(tz_name)
+            dt = dt.astimezone(tz)
+        except pytz.exceptions.UnknownTimeZoneError:
+            pass
+    
+    return dt
+
+def is_same_day(dt1, dt2):
+    """Check if two datetime objects are on the same day"""
+    if dt1 is None or dt2 is None:
+        return False
+    return (dt1.year == dt2.year and 
+            dt1.month == dt2.month and 
+            dt1.day == dt2.day)
 
 def find_thunderbird_profiles():
     """Find all possible Thunderbird profile directories"""
@@ -140,76 +168,54 @@ def get_thunderbird_calendar_events():
     
     print(f"Using calendar database: {calendar_db}")
     
-    # First examine the database structure
-    examine_database(calendar_db)
-    
     try:
         conn = sqlite3.connect(calendar_db)
         cursor = conn.cursor()
         
-        # Get today's date
-        today = date.today()
+        # Get today's date in UTC
+        today = datetime.now(timezone.utc)
         
-        # First check what tables are available
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = [table[0] for table in cursor.fetchall()]
+        # Query events from cal_events table
+        query = """
+        SELECT cal_id, title, event_start, event_end, event_start_tz, event_end_tz, flags
+        FROM cal_events
+        ORDER BY event_start;
+        """
         
-        print("\nAttempting to find calendar events for today...")
+        cursor.execute(query)
+        events = cursor.fetchall()
         
-        # Try different tables that might contain calendar data
-        event_tables = [table for table in tables if 'event' in table.lower() or 'cal' in table.lower() or 'item' in table.lower()]
+        print("\nEvents for today:")
+        print("=" * 50)
         
         found_events = False
-        for table in event_tables:
-            try:
-                # Get columns in this table
-                cursor.execute(f"PRAGMA table_info({table});")
-                columns = cursor.fetchall()
-                column_names = [col[1] for col in columns]
+        for event in events:
+            cal_id, title, start, end, start_tz, end_tz, flags = event
+            
+            # Convert timestamps to datetime objects
+            start_dt = microseconds_to_datetime(start, start_tz)
+            
+            # Skip if not today's event
+            if not is_same_day(start_dt, today):
+                continue
                 
-                # Look for datetime columns and title/summary columns
-                datetime_cols = [col for col in column_names if 'start' in col.lower() or 'date' in col.lower() or 'time' in col.lower()]
-                title_cols = [col for col in column_names if 'title' in col.lower() or 'summary' in col.lower() or 'subject' in col.lower()]
-                
-                if datetime_cols and title_cols:
-                    print(f"\nChecking table: {table}")
-                    print(f"Date column: {datetime_cols[0]}")
-                    print(f"Title column: {title_cols[0]}")
-                    
-                    # Try querying this table for today's events
-                    query = f"SELECT * FROM {table}"
-                    cursor.execute(query)
-                    results = cursor.fetchall()
-                    
-                    if results:
-                        print(f"Found {len(results)} rows in table {table}")
-                        
-                        # Print sample results
-                        for i, result in enumerate(results[:5]):  # Show up to 5 events
-                            event_data = {}
-                            for idx, col in enumerate(column_names):
-                                if idx < len(result):
-                                    event_data[col] = result[idx]
-                            
-                            print(f"\nEvent {i+1}:")
-                            for key, value in event_data.items():
-                                # Truncate long values
-                                if isinstance(value, str) and len(value) > 50:
-                                    value = value[:47] + "..."
-                                print(f"  {key}: {value}")
-                        
-                        found_events = True
-            except sqlite3.Error as e:
-                print(f"Error querying table {table}: {e}")
+            found_events = True
+            end_dt = microseconds_to_datetime(end, end_tz)
+            
+            # Format the output
+            print(f"\nTitle: {title}")
+            print(f"Time: {start_dt.strftime('%I:%M %p')} - {end_dt.strftime('%I:%M %p')}")
+            print(f"Timezone: {start_tz}")
+            print(f"Status: {'Cancelled' if flags & 1 else 'Active'}")
+            print("-" * 30)
         
         if not found_events:
-            print("Could not find any calendar events in the database")
+            print("No events found for today")
         
         conn.close()
         
     except sqlite3.Error as e:
         print(f"Database error: {e}")
-        # If database is locked, suggest closing Thunderbird
         if "database is locked" in str(e):
             print("The database is locked. Try closing Thunderbird before running this script.")
     except Exception as e:
