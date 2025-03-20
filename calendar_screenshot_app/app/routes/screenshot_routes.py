@@ -69,11 +69,11 @@ def upload_screenshot():
                 flash('Using Apple Calendar for availability check', 'info')
             else:
                 flash('Please select at least one calendar before analyzing screenshots', 'warning')
-                return redirect(url_for('calendar.manage_calendars'))
+                return redirect(url_for('calendar.list_calendars'))
         else:
             # Not on macOS, need to authenticate with Google or Microsoft
             flash('Please connect to a calendar service before analyzing screenshots', 'warning')
-            return redirect(url_for('calendar.manage_calendars'))
+            return redirect(url_for('calendar.list_calendars'))
     
     screenshot = None
     filename = None

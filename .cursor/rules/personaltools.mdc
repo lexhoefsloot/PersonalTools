@@ -9,7 +9,7 @@ alwaysApply: true
 
 ## Project Overview
 A Python web application that:
-1. Connects to multiple calendar sources (Google Calendar, Microsoft Office 365, and Apple Calendar on macOS)
+1. Connects to multiple calendar sources (Google Calendar, Microsoft Office 365, Apple Calendar on macOS, and Thunderbird Calendar)
 2. Analyzes screenshots of conversations using Claude AI to extract meeting time suggestions
 3. Intelligently identifies whether the text suggests time slots or requests availability
 4. Checks calendar availability for detected time slots
@@ -34,6 +34,7 @@ calendar_screenshot_app/
 │ │ ├── claude_service.py # Anthropic Claude API integration for image analysis
 │ │ ├── google_calendar.py # Google Calendar API integration
 │ │ ├── microsoft_calendar.py # Microsoft Graph API integration
+│ │ ├── thunderbird_calendar.py # Thunderbird Calendar integration
 │ │ └── screenshot_analyzer.py # OCR fallback for time extraction
 │ ├── static/ # CSS, JS, and static assets
 │ ├── templates/ # HTML templates
@@ -50,7 +51,9 @@ calendar_screenshot_app/
 ├── rules.md # Application architecture rules
 ├── README.md # Project documentation
 ├── requirements.txt # Python dependencies
-└── run.py # Application entry point
+├── run.py # Application entry point
+├── calendar-screenshot.service # Systemd service file
+└── install_debian_service.sh # Debian service installation script
 
 ## Technical Implementation
 
@@ -60,6 +63,7 @@ calendar_screenshot_app/
    - Google Calendar via Google API
    - Microsoft Calendar via Microsoft Graph API
    - Apple Calendar via AppleScript (macOS only)
+   - Thunderbird Calendar via SQLite database
    - Calendar selection and filtering interface
 
 2. **Claude-Powered Screenshot Analysis**
@@ -85,14 +89,17 @@ calendar_screenshot_app/
 ### Key Features
 
 - **Claude AI Analysis**: Intelligent screenshot understanding using Claude's multimodal capabilities
-- **Platform Integration**: Automatic Apple Calendar detection on macOS without authentication
-- **Multiple Calendar Sources**: Support for Google, Microsoft, and Apple calendars
+- **Platform Integration**: 
+  - Automatic Apple Calendar detection on macOS without authentication
+  - Automatic Thunderbird Calendar detection on any platform without authentication
+- **Multiple Calendar Sources**: Support for Google, Microsoft, Apple, and Thunderbird calendars
 - **Clipboard Analysis**: Direct analysis from clipboard screenshots
 - **Intelligent Time Detection**: Advanced pattern matching for various time formats
 - **Availability Checking**: Cross-reference with all connected calendars
 - **Alternative Suggestions**: Recommends available time slots when conflicts exist
 - **Responsive UI**: Works on desktop and mobile devices
 - **Quick Copy**: Copy time slots with a single click
+- **Linux Service**: Automatic startup as systemd service on Debian/Ubuntu systems
 
 ## Workflow
 
@@ -116,14 +123,20 @@ calendar_screenshot_app/
 - **Flask Configuration**: Secret key, debug mode, port settings
 - **Feature Flags**: Optional features can be enabled/disabled
 - **Development Tools**: Python virtual environment, debug utilities
+- **Systemd Service**: Debian/Ubuntu service configuration for automatic startup
 
 ## Technologies
 
 - **Backend**: Python 3.8+, Flask
 - **Frontend**: HTML5, CSS3, JavaScript, Bootstrap 5
 - **AI**: Anthropic Claude API for advanced screenshot analysis
-- **APIs**: Google Calendar API, Microsoft Graph API, AppleScript (macOS)
+- **APIs**: Google Calendar API, Microsoft Graph API
+- **Local Integrations**: 
+  - AppleScript for macOS Calendar
+  - SQLite for Thunderbird Calendar
 - **OCR Fallback**: Tesseract, OpenCV, Pillow
 - **Authentication**: OAuth 2.0
-- **Deployment**: Local development server with dotenv configuration
+- **Deployment**: 
+  - Local development server with dotenv configuration
+  - Systemd service for Linux deployment
 

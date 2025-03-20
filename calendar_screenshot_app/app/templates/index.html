@@ -69,7 +69,7 @@
             <hr>
             <div class="d-flex justify-content-end gap-2">
                 {% if platform.system() == 'Darwin' %}
-                    <a href="{{ url_for('calendar.manage_calendars') }}" class="btn btn-success">
+                    <a href="{{ url_for('calendar.list_calendars') }}" class="btn btn-success">
                         <i class="bi bi-apple me-2"></i>Use Apple Calendar
                     </a>
                 {% endif %}
