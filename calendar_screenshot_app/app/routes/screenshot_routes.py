@@ -1002,61 +1002,131 @@ def get_all_calendar_events(selected_calendars, start_date=None, end_date=None):
         start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     if not end_date:
         end_date = start_date + timedelta(days=7)
-        
+    
+    # Debug logging
+    print(f"\n==== CALENDAR EVENT RETRIEVAL ====")
+    print(f"Selected calendars: {selected_calendars}")
+    print(f"Time range: {start_date} to {end_date}")
+    
     all_events = []
     
     # Get Apple Calendar events if on macOS
     if platform.system() == 'Darwin':
         try:
+            print(f"\n-- Checking Apple Calendars --")
             from app.services.apple_calendar import get_apple_calendars, get_apple_events
             apple_calendars = get_apple_calendars()
+            print(f"Found {len(apple_calendars)} Apple calendars")
+            for cal in apple_calendars:
+                print(f"  • {cal['name']} (ID: {cal['id']}) - Selected: {cal['id'] in selected_calendars}")
+            
             apple_selected = [cal for cal in apple_calendars if cal['id'] in selected_calendars]
+            print(f"Selected {len(apple_selected)} Apple calendars")
+            
             if apple_selected:
                 apple_events = get_apple_events(apple_selected, start_date, end_date)
+                print(f"Retrieved {len(apple_events)} Apple Calendar events")
+                for i, event in enumerate(apple_events[:5]):  # Print first 5 for debugging
+                    print(f"  • Event {i+1}: {event.get('title')} - {event.get('start')} to {event.get('end')}")
+                if len(apple_events) > 5:
+                    print(f"  • ... and {len(apple_events) - 5} more events")
+                
                 all_events.extend(apple_events)
-                print(f"Added {len(apple_events)} Apple Calendar events")
+                print(f"Added {len(apple_events)} Apple Calendar events to result")
         except Exception as e:
             print(f"Error getting Apple events: {e}")
+            import traceback
+            traceback.print_exc()
     
     # Get Thunderbird Calendar events
     try:
+        print(f"\n-- Checking Thunderbird Calendars --")
         from app.services.thunderbird_calendar import get_thunderbird_calendars, get_thunderbird_events
         thunderbird_calendars = get_thunderbird_calendars()
+        print(f"Found {len(thunderbird_calendars)} Thunderbird calendars")
+        for cal in thunderbird_calendars:
+            print(f"  • {cal.get('name', 'Unnamed')} (ID: {cal['id']}) - Selected: {cal['id'] in selected_calendars}")
+        
         thunderbird_selected = [cal for cal in thunderbird_calendars if cal['id'] in selected_calendars]
+        print(f"Selected {len(thunderbird_selected)} Thunderbird calendars")
+        
         if thunderbird_selected:
             thunderbird_events = get_thunderbird_events(thunderbird_selected, start_date, end_date)
+            print(f"Retrieved {len(thunderbird_events)} Thunderbird Calendar events")
+            for i, event in enumerate(thunderbird_events[:5]):  # Print first 5 for debugging
+                print(f"  • Event {i+1}: {event.get('title')} - {event.get('start')} to {event.get('end')}")
+            if len(thunderbird_events) > 5:
+                print(f"  • ... and {len(thunderbird_events) - 5} more events")
+            
             all_events.extend(thunderbird_events)
-            print(f"Added {len(thunderbird_events)} Thunderbird Calendar events")
+            print(f"Added {len(thunderbird_events)} Thunderbird Calendar events to result")
     except Exception as e:
         print(f"Error getting Thunderbird events: {e}")
+        import traceback
+        traceback.print_exc()
     
     # Get Google Calendar events if authenticated
     if 'google_token' in session:
         try:
+            print(f"\n-- Checking Google Calendars --")
             from app.services.google_calendar import get_google_calendars, get_google_events
             google_calendars = get_google_calendars()
+            print(f"Found {len(google_calendars)} Google calendars")
+            for cal in google_calendars:
+                print(f"  • {cal.get('name', 'Unnamed')} (ID: {cal['id']}) - Selected: {cal['id'] in selected_calendars}")
+            
             google_selected = [cal for cal in google_calendars if cal['id'] in selected_calendars]
+            print(f"Selected {len(google_selected)} Google calendars")
+            
             if google_selected:
                 google_events = get_google_events(google_selected, start_date, end_date)
+                print(f"Retrieved {len(google_events)} Google Calendar events")
+                for i, event in enumerate(google_events[:5]):  # Print first 5 for debugging
+                    print(f"  • Event {i+1}: {event.get('title')} - {event.get('start')} to {event.get('end')}")
+                if len(google_events) > 5:
+                    print(f"  • ... and {len(google_events) - 5} more events")
+                
                 all_events.extend(google_events)
-                print(f"Added {len(google_events)} Google Calendar events")
+                print(f"Added {len(google_events)} Google Calendar events to result")
         except Exception as e:
             print(f"Error getting Google events: {e}")
+            import traceback
+            traceback.print_exc()
     
     # Get Microsoft Calendar events if authenticated
     if 'microsoft_token' in session:
         try:
+            print(f"\n-- Checking Microsoft Calendars --")
             from app.services.microsoft_calendar import get_microsoft_calendars, get_microsoft_events
             microsoft_calendars = get_microsoft_calendars()
+            print(f"Found {len(microsoft_calendars)} Microsoft calendars")
+            for cal in microsoft_calendars:
+                print(f"  • {cal.get('name', 'Unnamed')} (ID: {cal['id']}) - Selected: {cal['id'] in selected_calendars}")
+            
             microsoft_selected = [cal for cal in microsoft_calendars if cal['id'] in selected_calendars]
+            print(f"Selected {len(microsoft_selected)} Microsoft calendars")
+            
             if microsoft_selected:
                 microsoft_events = get_microsoft_events(microsoft_selected, start_date, end_date)
+                print(f"Retrieved {len(microsoft_events)} Microsoft Calendar events")
+                for i, event in enumerate(microsoft_events[:5]):  # Print first 5 for debugging
+                    print(f"  • Event {i+1}: {event.get('title')} - {event.get('start')} to {event.get('end')}")
+                if len(microsoft_events) > 5:
+                    print(f"  • ... and {len(microsoft_events) - 5} more events")
+                
                 all_events.extend(microsoft_events)
-                print(f"Added {len(microsoft_events)} Microsoft Calendar events")
+                print(f"Added {len(microsoft_events)} Microsoft Calendar events to result")
         except Exception as e:
             print(f"Error getting Microsoft events: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # Summary of all events
+    print(f"\n-- Calendar Events Summary --")
+    print(f"Total events retrieved: {len(all_events)}")
     
     # Ensure all datetime objects have consistent timezone information
+    timezone_fixed = 0
     for event in all_events:
         # Convert string dates to datetime objects
         if isinstance(event['start'], str):
@@ -1069,9 +1139,16 @@ def get_all_calendar_events(selected_calendars, start_date=None, end_date=None):
             # Use UTC as default timezone for naive datetimes
             from datetime import timezone
             event['start'] = event['start'].replace(tzinfo=timezone.utc)
+            timezone_fixed += 1
         if event['end'].tzinfo is None:
             from datetime import timezone
             event['end'] = event['end'].replace(tzinfo=timezone.utc)
+            timezone_fixed += 1
+    
+    if timezone_fixed > 0:
+        print(f"Fixed timezone for {timezone_fixed} date/time values")
+    
+    print(f"==== END CALENDAR EVENT RETRIEVAL ====\n")
     
     return all_events
 

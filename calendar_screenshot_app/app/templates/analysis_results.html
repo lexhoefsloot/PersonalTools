@@ -497,13 +497,26 @@
             
             // Add events that overlap with this day
             calendarHtml += '<div class="calendar-events">';
+            
+            // Log date comparison for debugging
+            console.log(`Finding events for date ${slotDate}`);
+            
+            // Convert slotDate to consistent format (YYYY-MM-DD)
+            var slotDateObj = new Date(slotDate);
+            var normalizedSlotDate = slotDateObj.toISOString().split('T')[0];
+            console.log(`Normalized slot date: ${normalizedSlotDate}`);
+            
             var dayEvents = calendarEvents.filter(function(event) {
                 var eventStart = new Date(event.start);
                 var eventDate = eventStart.toISOString().split('T')[0];
-                return eventDate === slotDate;
+                var matches = eventDate === normalizedSlotDate;
+                if (matches) {
+                    console.log(`  • Match: Event starting at ${eventStart.toLocaleString()} (${event.title})`);
+                }
+                return matches;
             });
             
-            console.log(`Found ${dayEvents.length} events for date ${slotDate}`);
+            console.log(`Found ${dayEvents.length} events for date ${normalizedSlotDate}`);
             
             if (dayEvents.length > 0) {
                 calendarHtml += '<h6>Today\'s Events:</h6>';
