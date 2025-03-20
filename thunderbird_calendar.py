@@ -84,92 +84,66 @@ def find_all_calendar_databases():
     return possible_dbs
 
 def get_thunderbird_calendar_events():
-    calendar_dbs = find_all_calendar_databases()
+    # Direct path to the calendar database
+    calendar_db = os.path.expanduser("~/.thunderbird/qw0vnk3t.default-default/calendar-data/local.sqlite")
     
-    if not calendar_dbs:
-        print("Error: No calendar databases found")
-        print("Thunderbird may not be configured with a calendar or events")
+    if not os.path.exists(calendar_db):
+        print(f"Error: Calendar database not found at {calendar_db}")
         return
     
-    # Get today's date
-    today = date.today()
+    print(f"Using calendar database: {calendar_db}")
     
-    found_events = False
-    for db_path in calendar_dbs:
-        try:
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
+    try:
+        conn = sqlite3.connect(calendar_db)
+        cursor = conn.cursor()
+        
+        # Get today's date
+        today = date.today()
+        
+        # Query for events today
+        query = """
+        SELECT 
+            item_title,
+            item_start_date,
+            item_end_date,
+            item_location
+        FROM cal_items
+        WHERE date(item_start_date) = date(?)
+        ORDER BY item_start_date
+        """
+        
+        cursor.execute(query, (today.isoformat(),))
+        events = cursor.fetchall()
+        
+        if not events:
+            print(f"No events found for today ({today.strftime('%A, %B %d, %Y')})")
+            return
+        
+        print(f"\nEvents for {today.strftime('%A, %B %d, %Y')}:")
+        print("-" * 50)
+        
+        for event in events:
+            title, start, end, location = event
+            try:
+                start_time = datetime.fromisoformat(start).strftime("%I:%M %p")
+                end_time = datetime.fromisoformat(end).strftime("%I:%M %p")
+            except ValueError:
+                # Handle all-day events
+                start_time = "All day"
+                end_time = "All day"
             
-            # Get database schema to determine correct query
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            tables = [table[0] for table in cursor.fetchall()]
-            
-            query = None
-            if 'cal_items' in tables:
-                query = """
-                SELECT 
-                    item_title,
-                    item_start_date,
-                    item_end_date,
-                    item_location
-                FROM cal_items
-                WHERE date(item_start_date) = date(?)
-                ORDER BY item_start_date
-                """
-            elif 'cal_events' in tables:
-                query = """
-                SELECT 
-                    summary,
-                    event_start,
-                    event_end,
-                    location
-                FROM cal_events
-                WHERE date(event_start) = date(?)
-                ORDER BY event_start
-                """
-            elif 'calendaritems' in tables:
-                query = """
-                SELECT 
-                    title,
-                    dtstart,
-                    dtend,
-                    location
-                FROM calendaritems
-                WHERE date(dtstart) = date(?)
-                ORDER BY dtstart
-                """
-            
-            if query:
-                cursor.execute(query, (today.isoformat(),))
-                events = cursor.fetchall()
-                
-                if events:
-                    found_events = True
-                    print(f"\nEvents for {today.strftime('%A, %B %d, %Y')} from {db_path}:")
-                    print("-" * 50)
-                    
-                    for event in events:
-                        title, start, end, location = event
-                        try:
-                            start_time = datetime.fromisoformat(start).strftime("%I:%M %p")
-                            end_time = datetime.fromisoformat(end).strftime("%I:%M %p")
-                        except ValueError:
-                            # Try different date format if ISO format fails
-                            start_time = "All day"
-                            end_time = "All day"
-                        
-                        location_str = f" at {location}" if location else ""
-                        print(f"{start_time} - {end_time}: {title}{location_str}")
-            
-            conn.close()
-            
-        except sqlite3.Error as e:
-            print(f"Database error with {db_path}: {e}")
-        except Exception as e:
-            print(f"An error occurred with {db_path}: {e}")
-    
-    if not found_events:
-        print("No events found for today")
+            location_str = f" at {location}" if location else ""
+            print(f"{start_time} - {end_time}: {title}{location_str}")
+        
+        conn.close()
+        
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
+        # If database is locked, suggest closing Thunderbird
+        if "database is locked" in str(e):
+            print("The database is locked. Try closing Thunderbird before running this script.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     get_thunderbird_calendar_events() 
