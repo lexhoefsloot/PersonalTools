@@ -4,27 +4,44 @@ import base64
 import anthropic
 from PIL import Image
 import io
+import logging
+import time
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def encode_image_to_base64(image_path):
     """Encode image to base64 string"""
     with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
+        image_data = image_file.read()
+        logger.info(f"Read image from {image_path}, size: {len(image_data)/1024:.2f} KB")
+        return base64.b64encode(image_data).decode('utf-8')
 
 def analyze_screenshot(screenshot_path):
     """Analyze screenshot with Claude API to extract meeting time information"""
     try:
+        logger.info(f"Starting Claude API analysis for screenshot: {screenshot_path}")
+        start_time = time.time()
+        
         # Get API key from environment variables
         api_key = os.environ.get('CLAUDE_API_KEY')
         if not api_key:
+            logger.error("Claude API key not found in environment variables")
             raise ValueError("Claude API key not found in environment variables")
+        else:
+            logger.info("Claude API key found")
         
         # Initialize Claude client exactly as shown in documentation
         client = anthropic.Anthropic(
             api_key=api_key,
         )
+        logger.info("Claude client initialized")
         
         # Prepare image for Claude
+        logger.info("Encoding image to base64...")
         base64_image = encode_image_to_base64(screenshot_path)
+        logger.info(f"Image encoded, base64 length: {len(base64_image)} characters")
         
         # Create enhanced system prompt for Claude
         system_prompt = """
@@ -69,9 +86,15 @@ def analyze_screenshot(screenshot_path):
         
         If no time information is found, return an empty time_slots array with an appropriate analysis.
         """
+        logger.info("System prompt prepared")
         
         # Define user message with the screenshot
         user_message = "Please analyze this conversation screenshot and extract any meeting time information. Identify whether someone is suggesting times or requesting times, and extract all time slots mentioned with their contextual information."
+        
+        # Log API request details
+        logger.info(f"Sending request to Claude API (model: claude-3-sonnet-20240229)")
+        logger.info(f"User message: {user_message}")
+        api_call_start = time.time()
         
         # Create message with the exact format from documentation
         message = client.messages.create(
@@ -89,47 +112,59 @@ def analyze_screenshot(screenshot_path):
             ]
         )
         
+        # Log API response time and basic info
+        api_call_duration = time.time() - api_call_start
+        logger.info(f"Claude API response received in {api_call_duration:.2f} seconds")
+        
         # Extract response text as shown in documentation
         response_text = message.content[0].text
+        
+        # Log the first part of the response
+        response_preview = response_text[:200] + "..." if len(response_text) > 200 else response_text
+        logger.info(f"Claude API response preview: {response_preview}")
         
         # Try to extract JSON from the response
         try:
             # Look for JSON block in the response
             if "```json" in response_text:
+                logger.info("Found JSON block with markers in response")
                 json_str = response_text.split("```json")[1].split("```")[0].strip()
             elif "```" in response_text:
+                logger.info("Found generic code block in response")
                 json_str = response_text.split("```")[1].split("```")[0].strip()
             else:
+                logger.info("No code block markers, treating entire response as JSON")
                 json_str = response_text.strip()
             
+            logger.info(f"Attempting to parse JSON response of length {len(json_str)}")
             result = json.loads(json_str)
             
-            # Add basic validation
-            if "is_suggestion" not in result:
-                result["is_suggestion"] = False
-            if "time_slots" not in result:
-                result["time_slots"] = []
-            if "analysis" not in result:
-                result["analysis"] = "Analysis not provided"
+            # Log the parsed result
+            time_slots_count = len(result.get("time_slots", []))
+            logger.info(f"Successfully parsed JSON response with {time_slots_count} time slots")
+            logger.info(f"is_suggestion: {result.get('is_suggestion')}")
+            logger.info(f"confidence: {result.get('confidence')}")
+            logger.info(f"Analysis: {result.get('analysis', '')[:100]}...")
             
-            print(f"Successfully analyzed screenshot with Claude: {result['analysis']}")
+            # Log total time taken
+            total_duration = time.time() - start_time
+            logger.info(f"Total screenshot analysis completed in {total_duration:.2f} seconds")
+            
             return result
         
-        except json.JSONDecodeError:
-            print("Failed to parse JSON from Claude's response")
-            print(f"Raw response: {response_text}")
+        except json.JSONDecodeError as e:
+            # Log JSON parsing error
+            logger.error(f"JSON decode error: {e}")
+            logger.error(f"Raw response that couldn't be parsed: {response_text}")
             return {
-                "is_suggestion": False,
-                "time_slots": [],
-                "confidence": 0.0,
-                "analysis": "Failed to extract structured data from the screenshot"
+                "error": "Failed to parse Claude API response",
+                "analysis": "The API response could not be parsed as valid JSON."
             }
-    
+            
     except Exception as e:
-        print(f"Error analyzing screenshot with Claude: {str(e)}")
+        # Log any other errors
+        logger.error(f"Error in analyze_screenshot: {str(e)}", exc_info=True)
         return {
-            "is_suggestion": False,
-            "time_slots": [],
-            "confidence": 0.0,
-            "analysis": f"Error processing screenshot: {str(e)}"
+            "error": f"Error analyzing screenshot: {str(e)}",
+            "analysis": "An error occurred while analyzing the screenshot with Claude API."
         } 

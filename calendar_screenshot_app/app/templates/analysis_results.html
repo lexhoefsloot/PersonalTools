@@ -311,6 +311,13 @@
     </div>
 </div>
 
+<!-- Debug Logs JSON Data -->
+{% if result.debug_logs %}
+<script id="debug-logs-data" type="application/json">
+{{ result.debug_logs|tojson }}
+</script>
+{% endif %}
+
 <!-- Calendar Events JSON Data -->
 {% if all_calendar_events %}
 <script id="all-calendar-events" type="application/json">
@@ -336,6 +343,49 @@
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         console.log('DOM loaded, initializing calendar view...');
+        
+        // Display debug logs in the debug console if available
+        const debugLogsEl = document.getElementById('debug-logs-data');
+        if (debugLogsEl) {
+            console.log('Debug logs found, displaying in debug console...');
+            
+            try {
+                // Parse the debug logs JSON
+                const debugLogs = JSON.parse(debugLogsEl.textContent);
+                
+                // Display each log in the debug console
+                debugLogs.forEach(log => {
+                    if (window.addDebugLog) {
+                        window.addDebugLog(log.message, log.type);
+                    }
+                    console.log(`[${log.type.toUpperCase()}] ${log.message}`);
+                });
+                
+                // Set debug status based on the last log type
+                if (debugLogs.length > 0 && window.setDebugStatus) {
+                    const lastLog = debugLogs[debugLogs.length - 1];
+                    if (lastLog.type === 'error') {
+                        window.setDebugStatus('error');
+                    } else if (lastLog.type === 'success') {
+                        window.setDebugStatus('success');
+                    } else if (lastLog.type === 'warning') {
+                        window.setDebugStatus('warning');
+                    } else {
+                        window.setDebugStatus('info');
+                    }
+                }
+            } catch (e) {
+                console.error('Error parsing debug logs:', e);
+                if (window.addDebugLog) {
+                    window.addDebugLog('Error parsing debug logs: ' + e.message, 'error');
+                }
+            }
+        } else {
+            console.log('No debug logs found');
+            if (window.addDebugLog) {
+                window.addDebugLog('No debug logs available for this analysis', 'info');
+            }
+        }
         
         // Add copy functionality to all copy buttons
         document.querySelectorAll('.copy-btn').forEach(button => {
@@ -364,15 +414,17 @@
         const toggleBtn = document.getElementById('toggle-calendars-btn');
         const calendarsContainer = document.getElementById('calendars-container');
         
-        toggleBtn.addEventListener('click', function() {
-            if (calendarsContainer.style.display === 'none') {
-                calendarsContainer.style.display = 'block';
-                toggleBtn.querySelector('.toggle-text').textContent = 'Hide Calendars';
-            } else {
-                calendarsContainer.style.display = 'none';
-                toggleBtn.querySelector('.toggle-text').textContent = 'Show Calendars';
-            }
-        });
+        if (toggleBtn && calendarsContainer) {
+            toggleBtn.addEventListener('click', function() {
+                if (calendarsContainer.style.display === 'none') {
+                    calendarsContainer.style.display = 'block';
+                    toggleBtn.querySelector('.toggle-text').textContent = 'Hide Calendars';
+                } else {
+                    calendarsContainer.style.display = 'none';
+                    toggleBtn.querySelector('.toggle-text').textContent = 'Show Calendars';
+                }
+            });
+        }
         
         // Get all calendar events
         console.log('Loading calendar events...');

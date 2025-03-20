@@ -14,6 +14,10 @@ from datetime import datetime, timedelta, time as dt_time
 from PIL import Image, ImageGrab
 from io import BytesIO
 import tempfile
+import logging
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 bp = Blueprint('screenshot', __name__, url_prefix='/screenshot')
 
@@ -22,11 +26,23 @@ def analyze_screenshot(filename):
     Analyze screenshot using Claude API, with fallback to OCR
     """
     try:
+        # Log start of analysis
+        logger.info(f"Starting screenshot analysis for: {filename}")
+        
+        # Add debug info for the template
+        debug_logs = []
+        debug_logs.append({"message": f"Starting screenshot analysis for: {filename}", "type": "info"})
+        debug_logs.append({"message": "Attempting to analyze with Claude API...", "type": "info"})
+        
         # Try using Claude API first
         result = claude_analyze_screenshot(filename)
         
         # Check if Claude analysis was successful
         if result and 'time_slots' in result and len(result.get('time_slots', [])) > 0:
+            # Log success
+            logger.info(f"Claude analysis successful: {len(result['time_slots'])} time slots found")
+            debug_logs.append({"message": f"Claude analysis successful: {len(result['time_slots'])} time slots found", "type": "success"})
+            
             # Format time slots for compatibility with existing code
             for slot in result['time_slots']:
                 # Convert ISO format times to datetime objects
@@ -45,15 +61,51 @@ def analyze_screenshot(filename):
             if len(result['time_slots']) > 0 and 'start_time' in result['time_slots'][0]:
                 result['date'] = result['time_slots'][0]['start_time'].date()
             
+            # Add debug logs to result
+            result['debug_logs'] = debug_logs
             return result
         
         # If Claude analysis failed or returned no time slots, fall back to OCR
-        print("Claude analysis failed or found no time slots, falling back to OCR")
-        return ocr_analyze_screenshot(filename)
+        logger.info("Claude analysis failed or returned no time slots, falling back to OCR")
+        debug_logs.append({"message": "Claude analysis failed or returned no time slots, falling back to OCR", "type": "warning"})
+        debug_logs.append({"message": "Starting OCR analysis...", "type": "info"})
         
+        # Add error from Claude if available
+        if result and 'error' in result:
+            logger.error(f"Claude API error: {result['error']}")
+            debug_logs.append({"message": f"Claude API error: {result['error']}", "type": "error"})
+        
+        # Fall back to OCR analysis
+        ocr_result = ocr_analyze_screenshot(filename)
+        
+        if ocr_result:
+            logger.info(f"OCR analysis successful: {len(ocr_result.get('time_slots', []))} time slots found")
+            debug_logs.append({"message": f"OCR analysis successful: {len(ocr_result.get('time_slots', []))} time slots found", "type": "success"})
+            # Add debug logs to result
+            ocr_result['debug_logs'] = debug_logs
+            return ocr_result
+        else:
+            logger.error("Both Claude and OCR analysis failed")
+            debug_logs.append({"message": "Both Claude and OCR analysis failed", "type": "error"})
+            return {
+                "error": "Failed to extract time information from the screenshot",
+                "time_slots": [],
+                "is_suggestion": False,
+                "analysis": "Could not detect any time information in the screenshot",
+                "debug_logs": debug_logs
+            }
+    
     except Exception as e:
-        print(f"Error in Claude analysis, falling back to OCR: {str(e)}")
-        return ocr_analyze_screenshot(filename)
+        logger.exception(f"Error in screenshot analysis: {str(e)}")
+        return {
+            "error": f"Error analyzing screenshot: {str(e)}",
+            "time_slots": [],
+            "is_suggestion": False,
+            "analysis": "An error occurred while analyzing the screenshot",
+            "debug_logs": [
+                {"message": f"Error in screenshot analysis: {str(e)}", "type": "error"}
+            ]
+        }
 
 @bp.route('/upload', methods=['POST'])
 def upload_screenshot():

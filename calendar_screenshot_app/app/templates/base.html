@@ -7,7 +7,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     <!-- FullCalendar CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/main.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
     <style>
         body {
             background-color: #f8f9fa;
@@ -58,6 +58,64 @@
             margin-bottom: 10px;
             border-radius: 5px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Debug Console Styles */
+        #debug-console {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 30px;
+            background-color: #212529;
+            color: #fff;
+            z-index: 1040;
+            font-family: monospace;
+            font-size: 12px;
+            transition: height 0.3s ease;
+            overflow: hidden;
+        }
+        
+        #debug-console.expanded {
+            height: 300px;
+            overflow-y: auto;
+        }
+        
+        #debug-console-header {
+            padding: 5px 10px;
+            background-color: #343a40;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        
+        #debug-console-content {
+            padding: 10px;
+            height: calc(100% - 30px);
+            overflow-y: auto;
+        }
+        
+        .debug-log {
+            margin: 2px 0;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        
+        .debug-log-info {
+            color: #17a2b8;
+        }
+        
+        .debug-log-error {
+            color: #dc3545;
+        }
+        
+        .debug-log-api {
+            color: #ffc107;
+        }
+        
+        .debug-log-response {
+            color: #28a745;
         }
     </style>
     {% block head_extra %}{% endblock %}
@@ -118,6 +176,18 @@
         </div>
     </footer>
     
+    <!-- Debug Console -->
+    <div id="debug-console">
+        <div id="debug-console-header">
+            <span>Debug Console <span id="debug-status-badge" class="badge bg-secondary">Idle</span></span>
+            <div>
+                <button id="debug-clear-btn" class="btn btn-sm btn-outline-light me-2" style="font-size: 10px; padding: 0 5px;">Clear</button>
+                <button id="debug-toggle-btn" class="btn btn-sm btn-outline-light" style="font-size: 10px; padding: 0 5px;">Expand</button>
+            </div>
+        </div>
+        <div id="debug-console-content"></div>
+    </div>
+    
     <!-- JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- FullCalendar JS -->
@@ -157,6 +227,73 @@
                     form.submit();
                 });
             }
+            
+            // Debug Console Functionality
+            const debugConsole = document.getElementById('debug-console');
+            const debugToggleBtn = document.getElementById('debug-toggle-btn');
+            const debugClearBtn = document.getElementById('debug-clear-btn');
+            const debugContent = document.getElementById('debug-console-content');
+            const debugStatusBadge = document.getElementById('debug-status-badge');
+            
+            // Toggle debug console
+            debugToggleBtn.addEventListener('click', function() {
+                debugConsole.classList.toggle('expanded');
+                debugToggleBtn.textContent = debugConsole.classList.contains('expanded') ? 'Collapse' : 'Expand';
+            });
+            
+            // Clear debug console
+            debugClearBtn.addEventListener('click', function() {
+                debugContent.innerHTML = '';
+            });
+            
+            // Debug console header toggle
+            document.getElementById('debug-console-header').addEventListener('click', function(e) {
+                // Avoid triggering when clicking buttons
+                if (e.target.tagName !== 'BUTTON') {
+                    debugConsole.classList.toggle('expanded');
+                    debugToggleBtn.textContent = debugConsole.classList.contains('expanded') ? 'Collapse' : 'Expand';
+                }
+            });
+            
+            // Function to add log entry to debug console
+            window.addDebugLog = function(message, type = 'info') {
+                const logElement = document.createElement('div');
+                logElement.className = `debug-log debug-log-${type}`;
+                logElement.textContent = message;
+                debugContent.appendChild(logElement);
+                debugContent.scrollTop = debugContent.scrollHeight;
+                
+                // Auto-expand on error
+                if (type === 'error' && !debugConsole.classList.contains('expanded')) {
+                    debugConsole.classList.add('expanded');
+                    debugToggleBtn.textContent = 'Collapse';
+                }
+            };
+            
+            // Function to update debug status badge
+            window.setDebugStatus = function(status) {
+                let badgeClass = 'bg-secondary';
+                
+                switch(status) {
+                    case 'loading':
+                        badgeClass = 'bg-warning';
+                        break;
+                    case 'success':
+                        badgeClass = 'bg-success';
+                        break;
+                    case 'error':
+                        badgeClass = 'bg-danger';
+                        break;
+                    default:
+                        badgeClass = 'bg-secondary';
+                }
+                
+                debugStatusBadge.className = `badge ${badgeClass}`;
+                debugStatusBadge.textContent = status;
+            };
+            
+            // Add initial log
+            addDebugLog('Debug console initialized', 'info');
         });
     </script>
     
