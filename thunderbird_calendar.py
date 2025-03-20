@@ -4,126 +4,172 @@ import json
 from datetime import date, datetime
 import sqlite3
 import glob
+import subprocess
 
-def find_thunderbird_profile():
-    """Find the Thunderbird profile directory"""
-    # Common profile locations
-    possible_paths = [
-        os.path.expanduser("~/.thunderbird/*.default"),
-        os.path.expanduser("~/.thunderbird/*.default-release"),
-        os.path.expanduser("~/.thunderbird/*.default-esr"),
-        os.path.expanduser("~/.thunderbird/*.default-nightly")
+def find_thunderbird_profiles():
+    """Find all possible Thunderbird profile directories"""
+    # Common profile locations on different systems
+    profile_paths = [
+        os.path.expanduser("~/.thunderbird/*/"),
+        os.path.expanduser("~/.icedove/*/"),  # Debian's fork of Thunderbird
+        os.path.expanduser("~/.mozilla-thunderbird/*/"),  # Older versions
+        os.path.expanduser("~/.local/share/thunderbird/*/"),
+        os.path.expanduser("~/Library/Thunderbird/Profiles/*/")  # macOS
     ]
     
-    for path_pattern in possible_paths:
-        matches = glob.glob(path_pattern)
-        if matches:
-            return matches[0]
-    return None
-
-def find_calendar_database(profile_dir):
-    """Find the calendar database in various possible locations"""
-    possible_locations = [
-        os.path.join(profile_dir, "calendar-data", "local.sqlite"),
-        os.path.join(profile_dir, "calendar-data", "storage.sqlite"),
-        os.path.join(profile_dir, "calendar-data", "calendars.sqlite"),
-        os.path.join(profile_dir, "calendar-data", "events.sqlite"),
-        os.path.join(profile_dir, "calendar-data", "calendar.sqlite"),
-        os.path.join(profile_dir, "calendar.sqlite"),
-        os.path.join(profile_dir, "calendar-data", "calendar.sqlite")
-    ]
+    profiles = []
+    for path_pattern in profile_paths:
+        profiles.extend(glob.glob(path_pattern))
     
-    for location in possible_locations:
-        if os.path.exists(location):
-            return location
-    return None
+    return profiles
 
-def check_calendar_enabled(profile_dir):
-    """Check if calendar functionality is enabled in Thunderbird"""
-    prefs_path = os.path.join(profile_dir, "prefs.js")
-    if not os.path.exists(prefs_path):
-        return False
+def find_sqlite_files(directory, max_depth=3):
+    """Find all SQLite files in a directory and its subdirectories up to max_depth"""
+    if max_depth <= 0:
+        return []
     
+    result = []
     try:
-        with open(prefs_path, 'r') as f:
-            prefs = f.read()
-            return '"calendar.enabled", true' in prefs
-    except Exception:
-        return False
+        for item in os.listdir(directory):
+            path = os.path.join(directory, item)
+            if os.path.isfile(path) and path.endswith('.sqlite'):
+                result.append(path)
+            elif os.path.isdir(path):
+                result.extend(find_sqlite_files(path, max_depth - 1))
+    except (PermissionError, FileNotFoundError):
+        pass
+    
+    return result
 
-def get_thunderbird_calendar_events():
-    profile_dir = find_thunderbird_profile()
-    if not profile_dir:
-        print("Error: Could not find Thunderbird profile directory")
-        print("Searched in:", os.path.expanduser("~/.thunderbird/"))
-        return
-    
-    print(f"Found Thunderbird profile at: {profile_dir}")
-    
-    # Check if calendar is enabled
-    if not check_calendar_enabled(profile_dir):
-        print("Calendar functionality appears to be disabled in Thunderbird.")
-        print("Please enable it in Thunderbird's settings:")
-        print("1. Open Thunderbird")
-        print("2. Go to Edit > Preferences")
-        print("3. Click on 'Calendar' in the left sidebar")
-        print("4. Make sure 'Enable Calendar' is checked")
-        return
-    
-    calendar_db = find_calendar_database(profile_dir)
-    if not calendar_db:
-        print("Error: Calendar database not found")
-        print("Searched in:", os.path.join(profile_dir, "calendar-data/"))
-        print("\nPlease ensure that:")
-        print("1. Calendar functionality is enabled in Thunderbird")
-        print("2. You have created at least one calendar")
-        print("3. You have added at least one event to your calendar")
-        return
-    
-    print(f"Found calendar database at: {calendar_db}")
-    
+def check_if_calendar_db(db_path):
+    """Check if the SQLite database contains calendar tables"""
     try:
-        conn = sqlite3.connect(calendar_db)
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Get today's date
-        today = date.today()
-        
-        # Query for events today
-        query = """
-        SELECT 
-            item_title,
-            item_start_date,
-            item_end_date,
-            item_location
-        FROM cal_items
-        WHERE date(item_start_date) = date(?)
-        ORDER BY item_start_date
-        """
-        
-        cursor.execute(query, (today.isoformat(),))
-        events = cursor.fetchall()
-        
-        if not events:
-            print("No events found for today")
-            return
-        
-        print(f"\nEvents for {today.strftime('%A, %B %d, %Y')}:")
-        print("-" * 50)
-        
-        for event in events:
-            title, start, end, location = event
-            start_time = datetime.fromisoformat(start).strftime("%I:%M %p")
-            end_time = datetime.fromisoformat(end).strftime("%I:%M %p")
-            location_str = f" at {location}" if location else ""
-            print(f"{start_time} - {end_time}: {title}{location_str}")
+        # Check for common calendar tables
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND (name='cal_items' OR name='cal_events' OR name='calendaritems' OR name='events');")
+        result = cursor.fetchall()
         
         conn.close()
         
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+        return len(result) > 0
+    except sqlite3.Error:
+        return False
+
+def find_all_calendar_databases():
+    """Find all possible calendar databases"""
+    profiles = find_thunderbird_profiles()
+    possible_dbs = []
+    
+    for profile in profiles:
+        print(f"Searching in profile: {profile}")
+        # Look for specific calendar paths
+        calendar_paths = [
+            os.path.join(profile, "calendar-data"),
+            os.path.join(profile, "storage", "calendar"),
+            os.path.join(profile, "storage", "default", "calendar"),
+            profile
+        ]
+        
+        # Find all SQLite files in these directories
+        for path in calendar_paths:
+            if os.path.exists(path):
+                sqlite_files = find_sqlite_files(path)
+                for db in sqlite_files:
+                    if check_if_calendar_db(db):
+                        possible_dbs.append(db)
+                        print(f"  Found potential calendar database: {db}")
+    
+    return possible_dbs
+
+def get_thunderbird_calendar_events():
+    calendar_dbs = find_all_calendar_databases()
+    
+    if not calendar_dbs:
+        print("Error: No calendar databases found")
+        print("Thunderbird may not be configured with a calendar or events")
+        return
+    
+    # Get today's date
+    today = date.today()
+    
+    found_events = False
+    for db_path in calendar_dbs:
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Get database schema to determine correct query
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = [table[0] for table in cursor.fetchall()]
+            
+            query = None
+            if 'cal_items' in tables:
+                query = """
+                SELECT 
+                    item_title,
+                    item_start_date,
+                    item_end_date,
+                    item_location
+                FROM cal_items
+                WHERE date(item_start_date) = date(?)
+                ORDER BY item_start_date
+                """
+            elif 'cal_events' in tables:
+                query = """
+                SELECT 
+                    summary,
+                    event_start,
+                    event_end,
+                    location
+                FROM cal_events
+                WHERE date(event_start) = date(?)
+                ORDER BY event_start
+                """
+            elif 'calendaritems' in tables:
+                query = """
+                SELECT 
+                    title,
+                    dtstart,
+                    dtend,
+                    location
+                FROM calendaritems
+                WHERE date(dtstart) = date(?)
+                ORDER BY dtstart
+                """
+            
+            if query:
+                cursor.execute(query, (today.isoformat(),))
+                events = cursor.fetchall()
+                
+                if events:
+                    found_events = True
+                    print(f"\nEvents for {today.strftime('%A, %B %d, %Y')} from {db_path}:")
+                    print("-" * 50)
+                    
+                    for event in events:
+                        title, start, end, location = event
+                        try:
+                            start_time = datetime.fromisoformat(start).strftime("%I:%M %p")
+                            end_time = datetime.fromisoformat(end).strftime("%I:%M %p")
+                        except ValueError:
+                            # Try different date format if ISO format fails
+                            start_time = "All day"
+                            end_time = "All day"
+                        
+                        location_str = f" at {location}" if location else ""
+                        print(f"{start_time} - {end_time}: {title}{location_str}")
+            
+            conn.close()
+            
+        except sqlite3.Error as e:
+            print(f"Database error with {db_path}: {e}")
+        except Exception as e:
+            print(f"An error occurred with {db_path}: {e}")
+    
+    if not found_events:
+        print("No events found for today")
 
 if __name__ == "__main__":
     get_thunderbird_calendar_events() 
