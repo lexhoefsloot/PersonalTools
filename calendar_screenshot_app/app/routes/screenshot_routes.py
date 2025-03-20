@@ -31,6 +31,34 @@ def analyze_screenshot(filename):
         # Add debug info for the template
         debug_logs = []
         debug_logs.append({"message": f"Starting screenshot analysis for: {filename}", "type": "info"})
+        
+        # Check API configuration
+        api_key = os.environ.get('CLAUDE_API_KEY')
+        if not api_key:
+            debug_logs.append({"message": "Claude API key not configured in environment", "type": "error"})
+            debug_logs.append({"message": "Set CLAUDE_API_KEY environment variable", "type": "info"})
+            debug_logs.append({"message": "Visit /screenshot/api_status to debug API setup", "type": "info"})
+        else:
+            mask = api_key[:4] + "..." + api_key[-2:] if len(api_key) > 6 else "***masked***"
+            debug_logs.append({"message": f"API key found (masked: {mask})", "type": "info"})
+            
+        # Check image details
+        try:
+            image_size_kb = os.path.getsize(filename) / 1024
+            with Image.open(filename) as img:
+                width, height = img.size
+                format = img.format
+                mode = img.mode
+                debug_logs.append({
+                    "message": f"Image details: {width}x{height} pixels, {format}, {mode}, {image_size_kb:.1f} KB",
+                    "type": "info"
+                })
+        except Exception as e:
+            debug_logs.append({
+                "message": f"Error getting image details: {str(e)}",
+                "type": "warning"
+            })
+            
         debug_logs.append({"message": "Analyzing with Claude API...", "type": "info"})
         
         # Use Claude API for analysis
@@ -520,4 +548,99 @@ def find_available_slots(time_slots, date):
             
             current_time += timedelta(minutes=30)
     
-    return available_slots 
+    return available_slots
+
+@bp.route('/api_status', methods=['GET'])
+def api_status():
+    """Check Claude API status to help debug connection issues"""
+    debug_logs = []
+    debug_logs.append({"message": "Checking Claude API configuration...", "type": "info"})
+    
+    # Check Python version
+    import sys
+    python_version = sys.version
+    debug_logs.append({"message": f"Python version: {python_version.split()[0]}", "type": "info"})
+    
+    # Check platform
+    debug_logs.append({"message": f"Platform: {platform.system()} {platform.release()}", "type": "info"})
+    
+    # Check required packages
+    packages_to_check = ['anthropic', 'PIL', 'flask', 'requests']
+    missing_packages = []
+    
+    for package in packages_to_check:
+        try:
+            if package == 'PIL':
+                import PIL
+                debug_logs.append({"message": f"PIL/Pillow version: {PIL.__version__}", "type": "info"})
+            elif package == 'anthropic':
+                import anthropic
+                debug_logs.append({"message": f"Anthropic version: {anthropic.__version__}", "type": "info"})
+            elif package == 'flask':
+                import flask
+                debug_logs.append({"message": f"Flask version: {flask.__version__}", "type": "info"})
+            elif package == 'requests':
+                import requests
+                debug_logs.append({"message": f"Requests version: {requests.__version__}", "type": "info"})
+        except (ImportError, AttributeError):
+            missing_packages.append(package)
+            debug_logs.append({"message": f"Package {package} is missing or has errors", "type": "error"})
+    
+    if missing_packages:
+        debug_logs.append({"message": f"Missing required packages: {', '.join(missing_packages)}", "type": "error"})
+    
+    # Check environment variables
+    api_key = os.environ.get('CLAUDE_API_KEY')
+    if not api_key:
+        debug_logs.append({"message": "CLAUDE_API_KEY environment variable is not set", "type": "error"})
+        debug_logs.append({"message": "You need to set this environment variable with your API key", "type": "info"})
+        status = "Not configured"
+    elif not api_key.startswith(('sk-', 'anthropic-')):
+        debug_logs.append({"message": "CLAUDE_API_KEY has invalid format", "type": "error"})
+        debug_logs.append({"message": "API key should start with 'sk-' or 'anthropic-'", "type": "info"})
+        status = "Invalid format"
+    else:
+        mask = api_key[:4] + "..." + api_key[-2:] if len(api_key) > 6 else "***masked***"
+        debug_logs.append({"message": f"CLAUDE_API_KEY is set (masked: {mask})", "type": "info"})
+        
+        # Try to import anthropic and check version
+        try:
+            import anthropic
+            debug_logs.append({"message": f"Anthropic library version: {anthropic.__version__}", "type": "info"})
+            
+            # Check network connectivity
+            from app.services.claude_service import check_network_connectivity
+            connectivity_ok, connectivity_logs = check_network_connectivity()
+            debug_logs.extend(connectivity_logs)
+            
+            if not connectivity_ok:
+                debug_logs.append({"message": "Network connectivity issues detected", "type": "error"})
+                status = "Network error"
+            else:
+                # Try to initialize client
+                try:
+                    client = anthropic.Anthropic(api_key=api_key)
+                    debug_logs.append({"message": "Claude client initialized successfully", "type": "success"})
+                    status = "Configured"
+                except Exception as e:
+                    debug_logs.append({"message": f"Failed to initialize Claude client: {str(e)}", "type": "error"})
+                    status = "Client error"
+        except Exception as e:
+            debug_logs.append({"message": f"Error importing anthropic: {str(e)}", "type": "error"})
+            status = "Library error"
+    
+    # Check write permissions for temp files
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=True) as temp:
+            temp.write(b"test")
+            debug_logs.append({"message": f"Temp directory ({tempfile.gettempdir()}) is writable", "type": "success"})
+    except Exception as e:
+        debug_logs.append({"message": f"Temp directory issue: {str(e)}", "type": "error"})
+    
+    result = {
+        "status": status,
+        "debug_logs": debug_logs
+    }
+    
+    return render_template('analysis_results.html', result=result) 
