@@ -587,95 +587,104 @@ def find_available_slots(time_slots, date):
 
 @bp.route('/api_status', methods=['GET'])
 def api_status():
-    """Check Claude API status to help debug connection issues"""
+    """Check API status and environment"""
     debug_logs = []
-    debug_logs.append({"message": "Checking Claude API configuration...", "type": "info"})
     
-    # Check Python version
+    # Check Python version and platform
     import sys
-    python_version = sys.version
-    debug_logs.append({"message": f"Python version: {python_version.split()[0]}", "type": "info"})
+    python_info = f"Python {sys.version.split(' ')[0]} on {platform.system()} {platform.release()}"
+    debug_logs.append({"message": python_info, "type": "info"})
     
-    # Check platform
-    debug_logs.append({"message": f"Platform: {platform.system()} {platform.release()}", "type": "info"})
-    
-    # Check required packages
-    packages_to_check = ['anthropic', 'PIL', 'flask', 'requests']
+    # Check for required packages
+    required_packages = ["anthropic", "PIL", "flask", "requests"]
     missing_packages = []
     
-    for package in packages_to_check:
+    for package in required_packages:
         try:
-            if package == 'PIL':
+            if package == "PIL":
                 import PIL
-                debug_logs.append({"message": f"PIL/Pillow version: {PIL.__version__}", "type": "info"})
-            elif package == 'anthropic':
-                import anthropic
-                debug_logs.append({"message": f"Anthropic version: {anthropic.__version__}", "type": "info"})
-            elif package == 'flask':
+                debug_logs.append({"message": f"✓ {package} v{PIL.__version__} installed", "type": "success"})
+            elif package == "flask":
                 import flask
-                debug_logs.append({"message": f"Flask version: {flask.__version__}", "type": "info"})
-            elif package == 'requests':
+                debug_logs.append({"message": f"✓ {package} v{flask.__version__} installed", "type": "success"})
+            elif package == "anthropic":
+                import anthropic
+                debug_logs.append({"message": f"✓ {package} v{anthropic.__version__} installed", "type": "success"})
+            elif package == "requests":
                 import requests
-                debug_logs.append({"message": f"Requests version: {requests.__version__}", "type": "info"})
+                debug_logs.append({"message": f"✓ {package} v{requests.__version__} installed", "type": "success"})
         except (ImportError, AttributeError):
             missing_packages.append(package)
-            debug_logs.append({"message": f"Package {package} is missing or has errors", "type": "error"})
+            debug_logs.append({"message": f"✗ {package} not found", "type": "error"})
     
     if missing_packages:
         debug_logs.append({"message": f"Missing required packages: {', '.join(missing_packages)}", "type": "error"})
     
-    # Check environment variables
+    # Check API key configuration
     api_key = os.environ.get('CLAUDE_API_KEY')
     if not api_key:
-        debug_logs.append({"message": "CLAUDE_API_KEY environment variable is not set", "type": "error"})
-        debug_logs.append({"message": "You need to set this environment variable with your API key", "type": "info"})
-        status = "Not configured"
-    elif not api_key.startswith(('sk-', 'anthropic-')):
-        debug_logs.append({"message": "CLAUDE_API_KEY has invalid format", "type": "error"})
-        debug_logs.append({"message": "API key should start with 'sk-' or 'anthropic-'", "type": "info"})
-        status = "Invalid format"
+        debug_logs.append({"message": "CLAUDE_API_KEY environment variable not set", "type": "error"})
     else:
-        mask = api_key[:4] + "..." + api_key[-2:] if len(api_key) > 6 else "***masked***"
-        debug_logs.append({"message": f"CLAUDE_API_KEY is set (masked: {mask})", "type": "info"})
-        
-        # Try to import anthropic and check version
+        # Basic check for key format (Claude API keys start with 'sk-')
+        if api_key.startswith('sk-'):
+            masked_key = f"{api_key[:5]}...{api_key[-2:]}"
+            debug_logs.append({"message": f"API key found with correct format (masked: {masked_key})", "type": "success"})
+        else:
+            debug_logs.append({"message": f"API key has invalid format (should start with 'sk-')", "type": "error"})
+    
+    # Check network connectivity to Claude API
+    from app.services.claude_service import check_network_connectivity
+    connectivity = check_network_connectivity()
+    
+    if connectivity['success']:
+        debug_logs.append({"message": "Network connectivity to Claude API: OK", "type": "success"})
+    else:
+        debug_logs.append({"message": f"Network connectivity issue: {connectivity['message']}", "type": "error"})
+    
+    # Check API access by making a simple test request if key is available
+    api_access = {"success": False, "message": "API access not tested"}
+    
+    if api_key and api_key.startswith('sk-') and connectivity['success']:
         try:
             import anthropic
-            debug_logs.append({"message": f"Anthropic library version: {anthropic.__version__}", "type": "info"})
+            import time
             
-            # Check network connectivity
-            from app.services.claude_service import check_network_connectivity
-            connectivity_ok, connectivity_logs = check_network_connectivity()
-            debug_logs.extend(connectivity_logs)
+            debug_logs.append({"message": "Testing Claude API access with a simple request...", "type": "info"})
             
-            if not connectivity_ok:
-                debug_logs.append({"message": "Network connectivity issues detected", "type": "error"})
-                status = "Network error"
-            else:
-                # Try to initialize client
-                try:
-                    client = anthropic.Anthropic(api_key=api_key)
-                    debug_logs.append({"message": "Claude client initialized successfully", "type": "success"})
-                    status = "Configured"
-                except Exception as e:
-                    debug_logs.append({"message": f"Failed to initialize Claude client: {str(e)}", "type": "error"})
-                    status = "Client error"
+            client = anthropic.Anthropic(api_key=api_key)
+            start_time = time.time()
+            
+            # Simple request to test the API
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20240620",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "Say hello"}]
+            )
+            
+            duration = time.time() - start_time
+            
+            api_access = {
+                "success": True, 
+                "message": f"API access successful (response time: {duration:.2f}s)",
+                "model": "claude-3-5-sonnet-20240620",
+                "response": response.content[0].text if response.content else "No content"
+            }
+            
+            debug_logs.append({"message": api_access["message"], "type": "success"})
+            debug_logs.append({"message": f"API response: {api_access['response']}", "type": "info"})
+            
         except Exception as e:
-            debug_logs.append({"message": f"Error importing anthropic: {str(e)}", "type": "error"})
-            status = "Library error"
+            api_access = {"success": False, "message": str(e)}
+            debug_logs.append({"message": f"API access failed: {str(e)}", "type": "error"})
     
-    # Check write permissions for temp files
-    try:
-        import tempfile
-        with tempfile.NamedTemporaryFile(delete=True) as temp:
-            temp.write(b"test")
-            debug_logs.append({"message": f"Temp directory ({tempfile.gettempdir()}) is writable", "type": "success"})
-    except Exception as e:
-        debug_logs.append({"message": f"Temp directory issue: {str(e)}", "type": "error"})
-    
-    result = {
-        "status": status,
+    # Return the status information
+    status_result = {
+        "python": python_info,
+        "packages": {"required": required_packages, "missing": missing_packages},
+        "api_key": {"configured": bool(api_key), "valid_format": bool(api_key and api_key.startswith('sk-'))},
+        "network": connectivity,
+        "api_access": api_access,
         "debug_logs": debug_logs
     }
     
-    return render_template('analysis_results.html', result=result) 
+    return render_template('api_status.html', result=status_result) 

@@ -61,61 +61,113 @@
         }
         
         /* Debug Console Styles */
-        #debug-console {
+        .debug-console-container {
             position: fixed;
             bottom: 0;
             left: 0;
             right: 0;
-            height: 30px;
-            background-color: #212529;
-            color: #fff;
-            z-index: 1040;
-            font-family: monospace;
-            font-size: 12px;
+            background: #1e1e1e;
+            color: #f0f0f0;
+            border-top: 2px solid #444;
+            z-index: 9999;
+            height: 40px;
             transition: height 0.3s ease;
             overflow: hidden;
         }
         
-        #debug-console.expanded {
+        .debug-console-container.expanded {
             height: 300px;
-            overflow-y: auto;
         }
         
-        #debug-console-header {
-            padding: 5px 10px;
-            background-color: #343a40;
+        .debug-console-header {
+            padding: 8px 15px;
+            background: #333;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            cursor: pointer;
+            border-bottom: 1px solid #555;
+            height: 40px;
         }
         
-        #debug-console-content {
+        .debug-title {
+            font-weight: bold;
+            color: #f0f0f0;
+        }
+        
+        .debug-status-badge {
+            background: #777;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            margin-right: 10px;
+        }
+        
+        .debug-status-badge.error {
+            background: #dc3545;
+        }
+        
+        .debug-status-badge.warning {
+            background: #ffc107;
+            color: #333;
+        }
+        
+        .debug-status-badge.success {
+            background: #28a745;
+        }
+        
+        .debug-status-badge.info {
+            background: #17a2b8;
+        }
+        
+        .debug-buttons {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .debug-console-body {
             padding: 10px;
-            height: calc(100% - 30px);
+            height: calc(100% - 40px);
             overflow-y: auto;
         }
         
-        .debug-log {
-            margin: 2px 0;
-            padding: 2px 5px;
-            border-radius: 3px;
+        .debug-logs {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.4;
         }
         
-        .debug-log-info {
-            color: #17a2b8;
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 3px 0;
+            border-bottom: 1px solid #333;
+            white-space: pre-wrap;
+            word-break: break-word;
         }
         
-        .debug-log-error {
-            color: #dc3545;
+        .log-entry.error {
+            color: #ff6b6b;
         }
         
-        .debug-log-api {
-            color: #ffc107;
+        .log-entry.warning {
+            color: #ffd166;
         }
         
-        .debug-log-response {
-            color: #28a745;
+        .log-entry.success {
+            color: #06d6a0;
+        }
+        
+        .log-entry.info {
+            color: #118ab2;
+        }
+        
+        .log-entry.debug {
+            color: #aaaaaa;
+        }
+        
+        .log-time {
+            color: #888;
+            margin-right: 10px;
         }
     </style>
     {% block head_extra %}{% endblock %}
@@ -182,15 +234,18 @@
     </footer>
     
     <!-- Debug Console -->
-    <div id="debug-console">
-        <div id="debug-console-header">
-            <span>Debug Console <span id="debug-status-badge" class="badge bg-secondary">Idle</span></span>
-            <div>
-                <button id="debug-clear-btn" class="btn btn-sm btn-outline-light me-2" style="font-size: 10px; padding: 0 5px;">Clear</button>
-                <button id="debug-toggle-btn" class="btn btn-sm btn-outline-light" style="font-size: 10px; padding: 0 5px;">Expand</button>
+    <div class="debug-console-container">
+        <div class="debug-console-header">
+            <span class="debug-title">Debug Console</span>
+            <span class="debug-status-badge">Ready</span>
+            <div class="debug-buttons">
+                <button class="btn btn-sm btn-danger clear-logs-btn">Clear</button>
+                <button class="btn btn-sm btn-secondary toggle-console-btn">Show</button>
             </div>
         </div>
-        <div id="debug-console-content"></div>
+        <div class="debug-console-body">
+            <div class="debug-logs"></div>
+        </div>
     </div>
     
     <!-- JavaScript -->
@@ -234,72 +289,112 @@
             }
             
             // Debug Console Functionality
-            const debugConsole = document.getElementById('debug-console');
-            const debugToggleBtn = document.getElementById('debug-toggle-btn');
-            const debugClearBtn = document.getElementById('debug-clear-btn');
-            const debugContent = document.getElementById('debug-console-content');
-            const debugStatusBadge = document.getElementById('debug-status-badge');
-            
-            // Toggle debug console
-            debugToggleBtn.addEventListener('click', function() {
-                debugConsole.classList.toggle('expanded');
-                debugToggleBtn.textContent = debugConsole.classList.contains('expanded') ? 'Collapse' : 'Expand';
-            });
-            
-            // Clear debug console
-            debugClearBtn.addEventListener('click', function() {
-                debugContent.innerHTML = '';
-            });
-            
-            // Debug console header toggle
-            document.getElementById('debug-console-header').addEventListener('click', function(e) {
-                // Avoid triggering when clicking buttons
-                if (e.target.tagName !== 'BUTTON') {
-                    debugConsole.classList.toggle('expanded');
-                    debugToggleBtn.textContent = debugConsole.classList.contains('expanded') ? 'Collapse' : 'Expand';
-                }
-            });
-            
-            // Function to add log entry to debug console
-            window.addDebugLog = function(message, type = 'info') {
-                const logElement = document.createElement('div');
-                logElement.className = `debug-log debug-log-${type}`;
-                logElement.textContent = message;
-                debugContent.appendChild(logElement);
-                debugContent.scrollTop = debugContent.scrollHeight;
-                
-                // Auto-expand on error
-                if (type === 'error' && !debugConsole.classList.contains('expanded')) {
-                    debugConsole.classList.add('expanded');
-                    debugToggleBtn.textContent = 'Collapse';
-                }
-            };
-            
-            // Function to update debug status badge
-            window.setDebugStatus = function(status) {
-                let badgeClass = 'bg-secondary';
-                
-                switch(status) {
-                    case 'loading':
-                        badgeClass = 'bg-warning';
-                        break;
-                    case 'success':
-                        badgeClass = 'bg-success';
-                        break;
-                    case 'error':
-                        badgeClass = 'bg-danger';
-                        break;
-                    default:
-                        badgeClass = 'bg-secondary';
-                }
-                
-                debugStatusBadge.className = `badge ${badgeClass}`;
-                debugStatusBadge.textContent = status;
-            };
-            
-            // Add initial log
-            addDebugLog('Debug console initialized', 'info');
+            initDebugConsole();
+            console.log('Debug console initialized');
+            addDebugEntry('Debug console initialized', 'info');
         });
+
+        function initDebugConsole() {
+            const debugConsole = document.querySelector('.debug-console-container');
+            const toggleBtn = document.querySelector('.toggle-console-btn');
+            const clearBtn = document.querySelector('.clear-logs-btn');
+            const debugLogs = document.querySelector('.debug-logs');
+            const statusBadge = document.querySelector('.debug-status-badge');
+            
+            // Set initial state
+            let isConsoleVisible = false;
+            
+            // Toggle console visibility
+            toggleBtn.addEventListener('click', function() {
+                isConsoleVisible = !isConsoleVisible;
+                if (isConsoleVisible) {
+                    debugConsole.classList.add('expanded');
+                    toggleBtn.textContent = 'Hide';
+                } else {
+                    debugConsole.classList.remove('expanded');
+                    toggleBtn.textContent = 'Show';
+                }
+            });
+            
+            // Clear logs
+            clearBtn.addEventListener('click', function() {
+                debugLogs.innerHTML = '';
+                addDebugEntry('Logs cleared', 'info');
+                updateDebugStatus('Ready', 'info');
+            });
+            
+            // Add window error handler
+            window.addEventListener('error', function(event) {
+                const errorMsg = `JavaScript Error: ${event.message} at ${event.filename}:${event.lineno}`;
+                addDebugEntry(errorMsg, 'error');
+                updateDebugStatus('Error', 'error');
+                // Auto-expand console on errors
+                debugConsole.classList.add('expanded');
+                toggleBtn.textContent = 'Hide';
+                isConsoleVisible = true;
+            });
+            
+            // Clipboard analysis
+            document.addEventListener('paste', function(e) {
+                // Only handle if paste event has image data
+                if (e.clipboardData && e.clipboardData.items) {
+                    const items = e.clipboardData.items;
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf('image') !== -1) {
+                            addDebugEntry('Image data detected in clipboard', 'info');
+                            break;
+                        }
+                    }
+                }
+            });
+
+            // Auto-expand console when it contains errors
+            const checkForErrorsAndExpand = () => {
+                const errorLogs = document.querySelectorAll('.debug-logs .log-entry.error, .debug-logs .log-entry.warning');
+                if (errorLogs.length > 0) {
+                    debugConsole.classList.add('expanded');
+                    toggleBtn.textContent = 'Hide';
+                    isConsoleVisible = true;
+                }
+            };
+            
+            // Expose functions to global scope
+            window.addDebugEntry = function(message, type) {
+                const entry = document.createElement('div');
+                entry.className = `log-entry ${type || 'info'}`;
+                
+                const timestamp = new Date().toLocaleTimeString();
+                entry.innerHTML = `<span class="log-time">${timestamp}</span> <span class="log-message">${message}</span>`;
+                
+                debugLogs.appendChild(entry);
+                
+                // Auto-scroll to the bottom
+                debugLogs.scrollTop = debugLogs.scrollHeight;
+                
+                // Update status based on log type
+                updateDebugStatus(type.charAt(0).toUpperCase() + type.slice(1), type);
+                
+                // Auto-expand console for errors and warnings
+                if (type === 'error' || type === 'warning') {
+                    debugConsole.classList.add('expanded');
+                    toggleBtn.textContent = 'Hide';
+                    isConsoleVisible = true;
+                }
+                
+                return entry;
+            };
+            
+            window.updateDebugStatus = function(text, type) {
+                statusBadge.textContent = text;
+                statusBadge.className = 'debug-status-badge';
+                if (type) {
+                    statusBadge.classList.add(type);
+                }
+            };
+            
+            // Check for errors on load
+            setTimeout(checkForErrorsAndExpand, 500);
+        }
     </script>
     
     {% block scripts %}{% endblock %}

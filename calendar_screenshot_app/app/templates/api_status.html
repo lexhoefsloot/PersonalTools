@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}API Status{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <h1 class="mb-4">Claude API Status</h1>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">System Information</h5>
+        </div>
+        <div class="card-body">
+            <p class="mb-2"><strong>Environment:</strong> {{ result.python }}</p>
+            
+            <h6 class="mt-3">Required Packages:</h6>
+            <ul class="list-group mb-3">
+                {% for package in result.packages.required %}
+                    {% if package in result.packages.missing %}
+                        <li class="list-group-item list-group-item-danger">
+                            <i class="bi bi-x-circle-fill me-2"></i> {{ package }} - Missing
+                        </li>
+                    {% else %}
+                        <li class="list-group-item list-group-item-success">
+                            <i class="bi bi-check-circle-fill me-2"></i> {{ package }} - Installed
+                        </li>
+                    {% endif %}
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">API Configuration</h5>
+        </div>
+        <div class="card-body">
+            {% if result.api_key.configured %}
+                {% if result.api_key.valid_format %}
+                    <div class="alert alert-success mb-3">
+                        <i class="bi bi-check-circle-fill me-2"></i> API key is properly configured
+                    </div>
+                {% else %}
+                    <div class="alert alert-warning mb-3">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i> API key has invalid format (should start with 'sk-')
+                    </div>
+                {% endif %}
+            {% else %}
+                <div class="alert alert-danger mb-3">
+                    <i class="bi bi-x-circle-fill me-2"></i> API key is not configured
+                    <p class="mb-0 mt-2 small">Set the CLAUDE_API_KEY environment variable with your API key from Anthropic</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Network Connectivity</h5>
+        </div>
+        <div class="card-body">
+            {% if result.network.success %}
+                <div class="alert alert-success mb-3">
+                    <i class="bi bi-check-circle-fill me-2"></i> Connection to Claude API is working properly
+                </div>
+            {% else %}
+                <div class="alert alert-danger mb-3">
+                    <i class="bi bi-x-circle-fill me-2"></i> Network connectivity issue: {{ result.network.message }}
+                    <div class="mt-2 small">
+                        <strong>Troubleshooting:</strong>
+                        <ul class="mb-0 mt-1">
+                            <li>Check your internet connection</li>
+                            <li>Make sure your firewall allows outbound connections to api.anthropic.com</li>
+                            <li>Verify that DNS resolution is working correctly</li>
+                            <li>Try using a VPN if region restrictions might be an issue</li>
+                        </ul>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">API Access Test</h5>
+        </div>
+        <div class="card-body">
+            {% if result.api_access.success %}
+                <div class="alert alert-success mb-3">
+                    <i class="bi bi-check-circle-fill me-2"></i> {{ result.api_access.message }}
+                    <p class="mt-2 mb-0">
+                        <strong>Model:</strong> {{ result.api_access.model }}<br>
+                        <strong>Response:</strong> {{ result.api_access.response }}
+                    </p>
+                </div>
+            {% else %}
+                <div class="alert alert-danger mb-3">
+                    <i class="bi bi-x-circle-fill me-2"></i> API access failed: {{ result.api_access.message }}
+                    <div class="mt-2 small">
+                        <strong>Troubleshooting:</strong>
+                        <ul class="mb-0 mt-1">
+                            <li>Check that your API key is correct and has not expired</li>
+                            <li>Verify that your account has access to the Claude API</li>
+                            <li>Make sure your account has sufficient credits</li>
+                            <li>Check the <a href="https://status.anthropic.com" target="_blank">Anthropic Status Page</a></li>
+                        </ul>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Detailed Logs</h5>
+            <button class="btn btn-sm btn-primary" id="expandLogsBtn">Expand All</button>
+        </div>
+        <div class="card-body">
+            <div class="list-group" id="detailedLogs">
+                {% for log in result.debug_logs %}
+                    <div class="list-group-item list-group-item-{{ log.type }}">
+                        <i class="bi 
+                            {% if log.type == 'error' %}bi-x-circle-fill
+                            {% elif log.type == 'success' %}bi-check-circle-fill
+                            {% elif log.type == 'warning' %}bi-exclamation-triangle-fill
+                            {% else %}bi-info-circle-fill{% endif %} me-2"></i>
+                        {{ log.message }}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="text-center mt-4">
+        <a href="{{ url_for('index') }}" class="btn btn-primary me-2">Back to Home</a>
+        <button id="runTestAgainBtn" class="btn btn-outline-secondary">Run Test Again</button>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Expand all logs button
+    document.getElementById('expandLogsBtn').addEventListener('click', function() {
+        document.querySelector('.debug-console-container').classList.add('expanded');
+        document.querySelector('.toggle-console-btn').textContent = 'Hide';
+    });
+    
+    // Run test again button
+    document.getElementById('runTestAgainBtn').addEventListener('click', function() {
+        window.location.reload();
+    });
+    
+    // Add logs to debug console
+    {% if result.debug_logs %}
+        {% for log in result.debug_logs %}
+            addDebugEntry("{{ log.message|safe }}", "{{ log.type }}");
+        {% endfor %}
+    {% endif %}
+});
+</script>
+{% endblock %} 

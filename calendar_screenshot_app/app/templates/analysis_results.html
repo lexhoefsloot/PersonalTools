@@ -337,406 +337,116 @@
 {% else %}
 <script id="all-calendar-events" type="application/json">[]</script>
 {% endif %}
-{% endblock %}
 
-{% block scripts %}
+{% if result and not result.success %}
+<div class="alert alert-warning" role="alert">
+    <h4 class="alert-heading">Analysis Result</h4>
+    <p>{{ result.message }}</p>
+    {% if result.debug_logs %}
+    <hr>
+    <p class="mb-0">See debug console for more details</p>
+    {% endif %}
+</div>
+{% endif %}
+
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('DOM loaded, initializing calendar view...');
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("Analysis results page loaded");
+    
+    // Initialize calendar view if slots are available
+    initializeCalendarView();
+    
+    // Display debug logs if available
+    {% if result and result.debug_logs %}
+        console.log("Debug logs available, displaying in console");
+        var debugLogs = {{ result.debug_logs|tojson }};
         
-        // Display debug logs in the debug console if available
-        const debugLogsEl = document.getElementById('debug-logs-data');
-        if (debugLogsEl) {
-            console.log('Debug logs found, displaying in debug console...');
+        for (var log of debugLogs) {
+            addDebugEntry(log.message, log.type);
             
-            try {
-                // Parse the debug logs JSON
-                const debugLogs = JSON.parse(debugLogsEl.textContent);
-                
-                // Check if there are any error logs
-                const hasErrors = debugLogs.some(log => log.type === 'error' || log.type === 'warning');
-                
-                // Display each log in the debug console
-                debugLogs.forEach(log => {
-                    if (window.addDebugLog) {
-                        window.addDebugLog(log.message, log.type);
-                    }
-                    console.log(`[${log.type.toUpperCase()}] ${log.message}`);
-                });
-                
-                // Set debug status based on the last log type
-                if (debugLogs.length > 0 && window.setDebugStatus) {
-                    const lastLog = debugLogs[debugLogs.length - 1];
-                    if (lastLog.type === 'error') {
-                        window.setDebugStatus('error');
-                    } else if (lastLog.type === 'success') {
-                        window.setDebugStatus('success');
-                    } else if (lastLog.type === 'warning') {
-                        window.setDebugStatus('warning');
-                    } else {
-                        window.setDebugStatus('info');
-                    }
+            // For debug type logs with API response, add a button to show the full response
+            if (log.type === 'debug' && log.message.includes('Raw Claude response:')) {
+                var lastEntry = document.querySelector('.debug-logs .log-entry:last-child');
+                if (lastEntry) {
+                    var showButton = document.createElement('button');
+                    showButton.className = 'btn btn-sm btn-info mt-1';
+                    showButton.textContent = 'Show Full Response';
+                    showButton.onclick = function() {
+                        var responseText = log.message.replace('Raw Claude response: ', '');
+                        var responseDiv = document.createElement('div');
+                        responseDiv.className = 'mt-2 p-2 bg-dark text-light';
+                        responseDiv.style.maxHeight = '200px';
+                        responseDiv.style.overflow = 'auto';
+                        responseDiv.style.whiteSpace = 'pre-wrap';
+                        responseDiv.style.wordBreak = 'break-all';
+                        responseDiv.textContent = responseText;
+                        lastEntry.appendChild(responseDiv);
+                        showButton.style.display = 'none';
+                    };
+                    lastEntry.appendChild(showButton);
                 }
-                
-                // Auto-expand debug console if there are errors or warnings
-                if (hasErrors) {
-                    const debugConsole = document.getElementById('debug-console');
-                    if (debugConsole && !debugConsole.classList.contains('expanded')) {
-                        debugConsole.classList.add('expanded');
-                        const debugToggleBtn = document.getElementById('debug-toggle-btn');
-                        if (debugToggleBtn) {
-                            debugToggleBtn.textContent = 'Collapse';
-                        }
-                    }
-                }
-            } catch (e) {
-                console.error('Error parsing debug logs:', e);
-                if (window.addDebugLog) {
-                    window.addDebugLog('Error parsing debug logs: ' + e.message, 'error');
-                }
-            }
-        } else {
-            console.log('No debug logs found');
-            if (window.addDebugLog) {
-                window.addDebugLog('No debug logs available for this analysis', 'info');
             }
         }
         
-        // Add copy functionality to all copy buttons
-        document.querySelectorAll('.copy-btn').forEach(button => {
-            button.addEventListener('click', function() {
-                const textToCopy = this.getAttribute('data-text');
-                
-                navigator.clipboard.writeText(textToCopy)
-                    .then(() => {
-                        // Show success feedback
-                        const originalText = this.innerHTML;
-                        this.innerHTML = '<i class="bi bi-check"></i> Copied!';
-                        
-                        // Reset after 2 seconds
-                        setTimeout(() => {
-                            this.innerHTML = originalText;
-                        }, 2000);
-                    })
-                    .catch(err => {
-                        console.error('Could not copy text: ', err);
-                        alert('Failed to copy to clipboard');
-                    });
-            });
+        // Auto-expand console if there are warnings or errors
+        var hasErrors = debugLogs.some(function(log) { 
+            return log.type === 'error' || log.type === 'warning';
         });
-        
-        // Toggle calendar visibility
-        const toggleBtn = document.getElementById('toggle-calendars-btn');
-        const calendarsContainer = document.getElementById('calendars-container');
-        
-        if (toggleBtn && calendarsContainer) {
-            toggleBtn.addEventListener('click', function() {
-                if (calendarsContainer.style.display === 'none') {
-                    calendarsContainer.style.display = 'block';
-                    toggleBtn.querySelector('.toggle-text').textContent = 'Hide Calendars';
-                } else {
-                    calendarsContainer.style.display = 'none';
-                    toggleBtn.querySelector('.toggle-text').textContent = 'Show Calendars';
-                }
-            });
+        if (hasErrors) {
+            document.querySelector('.debug-console-container').classList.add('expanded');
+            document.querySelector('.toggle-console-btn').textContent = 'Hide';
         }
-        
-        // Get all calendar events
-        console.log('Loading calendar events...');
-        let calendarEvents = [];
-        const calendarEventsEl = document.getElementById('all-calendar-events');
-        
-        console.log('Calendar events element found:', !!calendarEventsEl);
-        if (calendarEventsEl) {
-            try {
-                // Get the JSON directly from the script element
-                const jsonText = calendarEventsEl.textContent.trim();
-                console.log('Calendar events JSON length:', jsonText.length);
-                
-                if (jsonText.length > 0) {
-                    // Only log a sample if there's a lot of data
-                    if (jsonText.length > 100) {
-                        console.log('Sample of JSON:', jsonText.substring(0, 100) + '...');
-                    }
+    {% else %}
+        console.log("No debug logs available");
+    {% endif %}
+    
+    // Setup copy buttons
+    setupCopyButtons();
+});
+
+// Function to initialize calendar view
+function initializeCalendarView() {
+    // Check if calendar element exists
+    var calendarEl = document.getElementById('calendar');
+    if (!calendarEl) {
+        console.log("No calendar element found");
+        return;
+    }
+    
+    console.log("Initializing calendar view");
+    
+    // Logic for calendar initialization would go here
+    // This is a placeholder since we're focusing on debugging
+}
+
+// Function to set up copy buttons
+function setupCopyButtons() {
+    // Find all copy buttons
+    var copyButtons = document.querySelectorAll('.copy-btn');
+    console.log("Found " + copyButtons.length + " copy buttons");
+    
+    // Add click handler to each button
+    copyButtons.forEach(function(button) {
+        button.addEventListener('click', function() {
+            var textToCopy = this.getAttribute('data-text');
+            
+            navigator.clipboard.writeText(textToCopy)
+                .then(function() {
+                    // Show success feedback
+                    var originalText = button.innerHTML;
+                    button.innerHTML = '<i class="bi bi-check"></i> Copied!';
                     
-                    // Start a timeout to handle slow parsing
-                    const parseTimeout = setTimeout(() => {
-                        console.warn('Calendar event parsing is taking a long time...');
-                        document.querySelectorAll('.calendar-loading').forEach(el => {
-                            el.innerHTML = '<div class="text-warning">Loading events is taking longer than expected...</div>';
-                        });
+                    // Reset after 2 seconds
+                    setTimeout(function() {
+                        button.innerHTML = originalText;
                     }, 2000);
-                    
-                    calendarEvents = JSON.parse(jsonText);
-                    clearTimeout(parseTimeout);
-                    
-                    console.log(`Successfully parsed ${calendarEvents.length} calendar events`);
-                    
-                    // Log details of first few events if available
-                    if (calendarEvents.length > 0) {
-                        console.log('First event details:', calendarEvents[0]);
-                    }
-                } else {
-                    console.log('No calendar events data found (empty JSON)');
-                }
-            } catch (e) {
-                console.error('Error parsing calendar events:', e);
-                console.log('Raw content that caused error:', 
-                    jsonText.length > 200 ? jsonText.substring(0, 200) + '...' : jsonText);
-                    
-                // Show error in all loading indicators
-                document.querySelectorAll('.calendar-loading').forEach(el => {
-                    el.innerHTML = '<div class="text-danger">Error loading calendar events</div>';
+                })
+                .catch(function(err) {
+                    console.error('Could not copy text: ', err);
+                    addDebugEntry('Failed to copy to clipboard: ' + err, 'error');
                 });
-            }
-        } else {
-            console.warn('No calendar events element found in the DOM');
-        }
-        
-        // Initialize calendars for each time slot using a staggered approach
-        const calendarElements = document.querySelectorAll('.slot-calendar');
-        console.log(`Found ${calendarElements.length} calendar slots to initialize`);
-        
-        // Initialize calendars one by one with a small delay to avoid freezing the browser
-        function initializeCalendar(index) {
-            if (index >= calendarElements.length) {
-                console.log('All calendars initialized');
-                return;
-            }
-            
-            const calendarEl = calendarElements[index];
-            console.log(`Initializing calendar ${index + 1}...`);
-            
-            const slotStart = calendarEl.dataset.slotStart;
-            const slotEnd = calendarEl.dataset.slotEnd;
-            const slotDate = calendarEl.dataset.slotDate;
-            const isAvailable = calendarEl.dataset.slotAvailable === 'true';
-            const calendarId = calendarEl.id;
-            const loadingId = 'loading-' + calendarId;
-            
-            console.log(`Calendar ${index + 1} data:`, {
-                id: calendarId,
-                start: slotStart,
-                end: slotEnd,
-                date: slotDate,
-                available: isAvailable
-            });
-            
-            try {
-                // Set a timeout to detect slow rendering
-                const renderTimeout = setTimeout(() => {
-                    const loadingEl = document.getElementById(loadingId);
-                    if (loadingEl) {
-                        loadingEl.innerHTML = '<div class="text-warning">Calendar is taking longer than expected to load...</div>';
-                    }
-                }, 3000);
-                
-                // Initialize calendar with suggested time
-                const calendar = new FullCalendar.Calendar(calendarEl, {
-                    initialView: 'timeGridDay',
-                    initialDate: new Date(), // Always use today's date
-                    headerToolbar: {
-                        left: '',
-                        center: 'title',
-                        right: ''
-                    },
-                    height: '100%',
-                    allDaySlot: false,
-                    slotMinTime: '07:00:00',
-                    slotMaxTime: '21:00:00',
-                    scrollTime: new Date(slotStart).toTimeString().slice(0, 8),
-                    slotDuration: '00:30:00', // Increased to improve performance
-                    slotLabelInterval: '01:00:00',
-                    eventTimeFormat: {
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        meridiem: 'short'
-                    },
-                    eventDidMount: function(info) {
-                        if (info.event.extendedProps.type === 'suggested') {
-                            info.el.classList.add('suggested-time');
-                        }
-                    },
-                    datesSet: function() {
-                        console.log(`Calendar ${index + 1} dates set, loading finished`);
-                        clearTimeout(renderTimeout);
-                        
-                        // Always hide loading indicator or replace with a helpful message
-                        const loadingEl = document.getElementById(loadingId);
-                        
-                        if (loadingEl) {
-                            // Check if we have any real events (not counting the suggested time slot)
-                            const hasRealEvents = calendarEvents && calendarEvents.some(event => {
-                                const eventStart = new Date(event.start);
-                                const eventDate = eventStart.toDateString();
-                                const slotDateObj = new Date(slotDate);
-                                return eventDate === slotDateObj.toDateString();
-                            });
-                            
-                            if (hasRealEvents) {
-                                // If we have real calendar events, hide the loading indicator
-                                loadingEl.style.display = 'none';
-                            } else {
-                                // If we have no events, show "No events found" message
-                                const slotDateTime = new Date(slotStart);
-                                const isHistoricalDate = slotDateTime < new Date(new Date().getTime() - (7 * 24 * 60 * 60 * 1000)); // 7 days ago
-                                
-                                if (isHistoricalDate) {
-                                    loadingEl.innerHTML = `
-                                        <div class="text-muted">
-                                            <p>Showing <strong>current</strong> calendar events for comparison with a 
-                                            <strong>historical suggestion</strong> from ${slotDateTime.toLocaleDateString()}.</p>
-                                            <p class="small mt-2">This calendar shows <strong>today's</strong> events to help you plan.</p>
-                                        </div>`;
-                                } else {
-                                    loadingEl.innerHTML = `
-                                        <div class="text-muted">
-                                            <p>No calendar events found for this date.</p>
-                                            <p class="small mt-2">Showing your current calendar events for planning.</p>
-                                        </div>`;
-                                }
-                                loadingEl.style.background = 'rgba(255, 255, 255, 0.8)';
-                            }
-                        } else {
-                            console.warn(`Loading element with ID ${loadingId} not found`);
-                        }
-                    }
-                });
-                
-                // First, render the calendar
-                console.log(`Rendering calendar ${index + 1}...`);
-                calendar.render();
-                console.log(`Calendar ${index + 1} rendered.`);
-                
-                // Now add events - first the real calendar events (matching only this day)
-                const eventsToAdd = [];
-                let matchingEventsCount = 0;
-                
-                if (calendarEvents && calendarEvents.length > 0) {
-                    console.log(`Filtering ${calendarEvents.length} events for calendar ${index + 1}...`);
-                    
-                    // Filter events for this specific date
-                    const slotDateObj = new Date(slotDate);
-                    const slotDateStr = slotDateObj.toDateString();
-                    
-                    const matchingEvents = calendarEvents.filter(event => {
-                        try {
-                            const eventStart = new Date(event.start);
-                            const eventDate = eventStart.toDateString();
-                            return eventDate === slotDateStr;
-                        } catch (e) {
-                            console.error(`Error filtering event:`, e, event);
-                            return false;
-                        }
-                    });
-                    
-                    matchingEventsCount = matchingEvents.length;
-                    console.log(`Found ${matchingEventsCount} events matching date ${slotDate} for calendar ${index + 1}`);
-                    
-                    // Add events to the calendar (limit to 50 per calendar for performance)
-                    const maxEventsToAdd = Math.min(matchingEvents.length, 50);
-                    for (let i = 0; i < maxEventsToAdd; i++) {
-                        const event = matchingEvents[i];
-                        eventsToAdd.push({
-                            title: event.title,
-                            start: event.start,
-                            end: event.end,
-                            backgroundColor: event.backgroundColor,
-                            borderColor: event.borderColor,
-                            classNames: event.classNames,
-                            extendedProps: {
-                                type: 'calendar'
-                            }
-                        });
-                    }
-                    
-                    if (matchingEvents.length > maxEventsToAdd) {
-                        console.log(`Limited display to ${maxEventsToAdd} events for performance`);
-                    }
-                } else {
-                    console.log(`No events available to add to calendar ${index + 1}`);
-                    // Change the loading indicator to "No events found" message
-                    const loadingEl = document.getElementById(loadingId);
-                    if (loadingEl) {
-                        loadingEl.innerHTML = '<div class="text-muted">No calendar events found</div>';
-                        loadingEl.style.background = 'rgba(255, 255, 255, 0.7)';
-                    }
-                }
-                
-                // Add the suggested time slot last so it's on top
-                console.log(`Adding suggested time slot to calendar ${index + 1}`);
-                
-                // Calculate relative offset to show the suggested time at the right time of day in today's calendar
-                const today = new Date();
-                const slotStartObj = new Date(slotStart);
-                const slotEndObj = new Date(slotEnd);
-                
-                // Create a suggested time that's at the same time of day but on today's date
-                const suggestedStartToday = new Date(
-                    today.getFullYear(), 
-                    today.getMonth(), 
-                    today.getDate(),
-                    slotStartObj.getHours(),
-                    slotStartObj.getMinutes()
-                );
-                
-                const suggestedEndToday = new Date(
-                    today.getFullYear(), 
-                    today.getMonth(), 
-                    today.getDate(),
-                    slotEndObj.getHours(),
-                    slotEndObj.getMinutes()
-                );
-                
-                // Add the suggested time event
-                eventsToAdd.push({
-                    title: `Suggested Time: ${slotStartObj.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})} - ${slotEndObj.toLocaleTimeString([], {hour: 'numeric', minute:'2-digit'})}`,
-                    start: suggestedStartToday,
-                    end: suggestedEndToday,
-                    backgroundColor: isAvailable ? 'rgba(0, 200, 0, 0.2)' : 'rgba(255, 0, 0, 0.1)',
-                    textColor: isAvailable ? '#28a745' : '#dc3545',
-                    borderColor: isAvailable ? '#28a745' : '#dc3545',
-                    classNames: ['suggested-time'],
-                    extendedProps: {
-                        type: 'suggested',
-                        originalDate: slotDateObj.toLocaleDateString()
-                    }
-                });
-                
-                // Add all events at once for better performance
-                console.log(`Adding ${eventsToAdd.length} events to calendar ${index + 1}`);
-                calendar.addEventSource({
-                    events: eventsToAdd
-                });
-                
-                console.log(`Calendar ${index + 1} setup complete.`);
-                
-                // Initialize the next calendar with a small delay
-                setTimeout(() => {
-                    initializeCalendar(index + 1);
-                }, 100);
-                
-            } catch (e) {
-                console.error(`Error setting up calendar ${index + 1}:`, e);
-                // Hide loading indicator on error
-                const loadingEl = document.getElementById(loadingId);
-                if (loadingEl) {
-                    loadingEl.innerHTML = '<div class="text-danger">Error loading calendar</div>';
-                }
-                
-                // Continue with the next calendar
-                setTimeout(() => {
-                    initializeCalendar(index + 1);
-                }, 100);
-            }
-        }
-        
-        // Start initializing calendars
-        if (calendarElements.length > 0) {
-            initializeCalendar(0);
-        } else {
-            console.log('No calendars to initialize');
-        }
+        });
     });
+}
 </script>
 {% endblock %} 
