@@ -441,8 +441,87 @@
         
         console.log("Initializing calendar view");
         
-        // This is a placeholder for calendar initialization code
-        // In a real implementation, we would use FullCalendar or similar library
+        // Get all the slot calendar containers
+        var calendarContainers = document.querySelectorAll('.slot-calendar');
+        if (calendarContainers.length === 0) {
+            console.log("No slot calendar containers found");
+            return;
+        }
+
+        // Parse the calendar events from the JSON data
+        var calendarEventsElement = document.getElementById('all-calendar-events');
+        var calendarEvents = [];
+        if (calendarEventsElement) {
+            try {
+                calendarEvents = JSON.parse(calendarEventsElement.textContent);
+                console.log("Loaded " + calendarEvents.length + " calendar events");
+            } catch (error) {
+                console.error("Error parsing calendar events:", error);
+            }
+        }
+
+        // Render simple calendar views for each slot
+        calendarContainers.forEach(function(container, index) {
+            // Get the slot data
+            var slotStart = new Date(container.dataset.slotStart);
+            var slotEnd = new Date(container.dataset.slotEnd);
+            var slotDate = container.dataset.slotDate;
+            var isAvailable = container.dataset.slotAvailable === 'true';
+            
+            // Create a simple calendar representation
+            var calendarHtml = '<div class="simple-calendar">';
+            
+            // Add header with day and date
+            calendarHtml += '<div class="calendar-header">';
+            calendarHtml += '<h5>' + slotStart.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + '</h5>';
+            calendarHtml += '</div>';
+            
+            // Add the time slot highlight
+            calendarHtml += '<div class="time-slot-highlight" style="background-color: ' + (isAvailable ? '#d4edda' : '#f8d7da') + '; padding: 10px; border-radius: 5px; margin: 10px 0;">';
+            calendarHtml += '<strong>' + slotStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + 
+                            ' - ' + slotEnd.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + '</strong>';
+            calendarHtml += '<span class="ms-2 badge ' + (isAvailable ? 'bg-success' : 'bg-danger') + '">' + 
+                            (isAvailable ? 'Available' : 'Unavailable') + '</span>';
+            calendarHtml += '</div>';
+            
+            // Add events that overlap with this day
+            calendarHtml += '<div class="calendar-events">';
+            var dayEvents = calendarEvents.filter(function(event) {
+                var eventStart = new Date(event.start);
+                var eventDate = eventStart.toISOString().split('T')[0];
+                return eventDate === slotDate;
+            });
+            
+            if (dayEvents.length > 0) {
+                calendarHtml += '<h6>Today\'s Events:</h6>';
+                calendarHtml += '<ul class="list-group">';
+                dayEvents.forEach(function(event) {
+                    var eventStart = new Date(event.start);
+                    var eventEnd = new Date(event.end);
+                    
+                    calendarHtml += '<li class="list-group-item" style="background-color: ' + event.backgroundColor + '; color: white;">';
+                    calendarHtml += '<strong>' + event.title + '</strong><br>';
+                    calendarHtml += '<small>' + eventStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + 
+                                    ' - ' + eventEnd.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + '</small>';
+                    calendarHtml += '</li>';
+                });
+                calendarHtml += '</ul>';
+            } else {
+                calendarHtml += '<p class="text-muted">No events scheduled for this day.</p>';
+            }
+            
+            calendarHtml += '</div>'; // close calendar-events
+            calendarHtml += '</div>'; // close simple-calendar
+            
+            // Set the calendar HTML
+            container.innerHTML = calendarHtml;
+            
+            // Hide the loading indicator
+            var loadingIndicator = document.getElementById('loading-calendar-' + (index + 1));
+            if (loadingIndicator) {
+                loadingIndicator.style.display = 'none';
+            }
+        });
     }
 
     // Function to set up copy buttons

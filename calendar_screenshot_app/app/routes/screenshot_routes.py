@@ -148,17 +148,32 @@ def upload_screenshot():
         
         # Always use current date range for calendar display
         # This ensures we show current calendar events even if screenshot has historical dates
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        calendar_start = today
-        calendar_end = today + timedelta(days=7)  # Look 1 week ahead
         
-        print(f"DEBUG: Using current date range for calendar display: {calendar_start} to {calendar_end}")
+        # Get a date range that covers all the slots from the screenshot
+        # Use the dates directly from the time slots for more accurate display
+        slot_dates = set([slot['start_time'].date() for slot in result['time_slots']])
+        
+        # Create a range from the earliest to latest date
+        min_date = min(slot_dates)
+        max_date = max(slot_dates)
+        
+        # Set calendar range to include the dates from the screenshot plus buffer
+        calendar_start = datetime.combine(min_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        calendar_end = datetime.combine(max_date, datetime.max.time()).replace(tzinfo=timezone.utc) + timedelta(days=1)
+        
+        print(f"DEBUG: Using date range for calendar display: {calendar_start} to {calendar_end}")
         print(f"DEBUG: Original date range from screenshot: {earliest_start} to {latest_end}")
         
         # Get all calendar events using our helper function
         all_events = get_all_calendar_events(session.get('selected_calendars', []), calendar_start, calendar_end)
+        print(f"DEBUG: Retrieved {len(all_events)} calendar events")
         
+        # Debug event information
+        for event in all_events[:5]:  # Log first 5 events for debugging
+            print(f"DEBUG EVENT: {event.get('title')} - {event.get('start')} to {event.get('end')}")
+
         # Check availability for each time slot
         for slot in result['time_slots']:
             try:
