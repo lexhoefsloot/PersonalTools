@@ -9,58 +9,66 @@ import time
 import socket
 import urllib.request
 import re
+from datetime import datetime, timedelta
+import requests
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def check_network_connectivity():
-    """Check if we can connect to the internet and the Claude API domain"""
-    results = []
+    """
+    Check if we can connect to the Anthropic API.
     
-    # Check if we can resolve DNS
+    Returns:
+        dict: Result containing:
+            - success (bool): Whether the connectivity check was successful
+            - message (str): Information about the successful connection
+            - error (str): Error message in case of failure
+    """
     try:
-        socket.gethostbyname('api.anthropic.com')
-        results.append({"message": "DNS resolution successful for api.anthropic.com", "type": "success"})
-    except socket.gaierror:
-        results.append({"message": "Failed to resolve api.anthropic.com - DNS issue", "type": "error"})
-        return False, results
-    
-    # Try to connect to the API domain
-    try:
-        socket.create_connection(('api.anthropic.com', 443), timeout=5)
-        results.append({"message": "Network connection successful to Claude API (port 443)", "type": "success"})
-    except (socket.timeout, socket.error) as e:
-        results.append({"message": f"Failed to connect to Claude API: {str(e)}", "type": "error"})
-        results.append({"message": "Check firewall and network settings", "type": "info"})
-        return False, results
-    
-    # Try a simple HTTP request to check if we can reach the service
-    try:
-        # Use urllib.request with a context manager to ensure proper cleanup
-        req = urllib.request.Request('https://api.anthropic.com')
-        try:
-            with urllib.request.urlopen(req, timeout=5) as response:
-                status = response.status
-                results.append({"message": f"HTTP connectivity test successful (status: {status})", "type": "success"})
-        except urllib.error.HTTPError as http_err:
-            # HTTP errors like 404, 403 mean the server is reachable but returned an error
-            # This is actually a success for connectivity testing
-            status = http_err.code
-            results.append({"message": f"HTTP connectivity test successful (status: {status})", "type": "success"})
-            results.append({"message": "Received HTTP error code, but this confirms API is reachable", "type": "info"})
-    except urllib.error.URLError as url_err:
-        # URL errors indicate network issues
-        results.append({"message": f"HTTP connectivity test failed: {str(url_err)}", "type": "error"})
-        results.append({"message": "API may be down or blocked by network", "type": "info"})
-        return False, results
+        # First check for general internet connectivity
+        urllib.request.urlopen("https://www.google.com", timeout=5)
+        
+        # Then check for Anthropic API connectivity (just DNS resolution, not actual auth)
+        # We don't need to check the full API endpoint, just the domain
+        response = requests.head("https://api.anthropic.com", timeout=5)
+        
+        # HTTP codes like 404 and 403 are actually good responses here
+        # They mean we can reach the server, even if we don't have permission
+        if response.status_code in [200, 403, 404]:
+            return {
+                "success": True,
+                "message": f"Successfully connected to Anthropic API (status: {response.status_code})",
+                "error": None
+            }
+        else:
+            return {
+                "success": False,
+                "message": None,
+                "error": f"Received unexpected status code from Anthropic API: {response.status_code}"
+            }
+            
+    except urllib.error.URLError as e:
+        return {
+            "success": False,
+            "message": None,
+            "error": f"General internet connectivity issue: {str(e)}"
+        }
+        
+    except requests.exceptions.RequestException as e:
+        return {
+            "success": False,
+            "message": None,
+            "error": f"Cannot connect to Anthropic API: {str(e)}"
+        }
+        
     except Exception as e:
-        # Unexpected errors
-        results.append({"message": f"HTTP connectivity test failed with unexpected error: {str(e)}", "type": "error"})
-        results.append({"message": "Check network and proxy settings", "type": "info"})
-        return False, results
-    
-    return True, results
+        return {
+            "success": False,
+            "message": None,
+            "error": f"Unexpected error during connectivity check: {str(e)}"
+        }
 
 def encode_image_to_base64(image_path):
     """Encode image to base64 string"""
@@ -69,333 +77,390 @@ def encode_image_to_base64(image_path):
         logger.info(f"Read image from {image_path}, size: {len(image_data)/1024:.2f} KB")
         return base64.b64encode(image_data).decode('utf-8')
 
-def validate_image(image_path):
-    """Validate that the file is a valid image and get basic info"""
+def validate_image(image_data):
+    """
+    Validate that the image data is suitable for analysis.
+    
+    Args:
+        image_data (bytes): The image data to validate.
+        
+    Returns:
+        dict: Validation result with keys:
+            - valid (bool): Whether the image is valid
+            - format (str): Image format if valid
+            - size (int): Size in bytes if valid
+            - reason (str): Reason for validation failure if not valid
+    """
     try:
-        # Check if file exists
-        if not os.path.exists(image_path):
+        # Try to open the image from bytes
+        image = Image.open(io.BytesIO(image_data))
+        
+        # Check if the image was opened correctly
+        image.verify()
+        
+        # Get image format and size
+        image = Image.open(io.BytesIO(image_data))
+        image_format = image.format
+        width, height = image.size
+        size_bytes = len(image_data)
+        
+        # Check for empty images or unreasonably small/large images
+        if width < 50 or height < 50:
             return {
-                "valid": False, 
-                "message": "Image file not found", 
-                "details": f"Path: {image_path}"
+                "valid": False,
+                "reason": f"Image too small: {width}x{height} pixels"
             }
             
-        # Check file size
-        file_size = os.path.getsize(image_path) / 1024  # KB
-        if file_size < 1:  # Less than 1KB
+        if size_bytes < 1000:
             return {
-                "valid": False, 
-                "message": "Image file too small", 
-                "details": f"Size: {file_size:.2f} KB"
+                "valid": False,
+                "reason": f"Image file too small: {size_bytes} bytes"
             }
             
-        # Try to open the image with PIL
-        try:
-            with Image.open(image_path) as img:
-                width, height = img.size
-                format = img.format
-                mode = img.mode
-                
-                # Very small images are likely not useful
-                if width < 100 or height < 100:
-                    return {
-                        "valid": False,
-                        "message": "Image dimensions too small", 
-                        "details": f"Size: {width}x{height} pixels"
-                    }
-                
-                # Return success with image info
-                return {
-                    "valid": True,
-                    "size_kb": file_size,
-                    "dimensions": f"{width}x{height}",
-                    "format": format,
-                    "mode": mode
-                }
-                
-        except Exception as e:
+        if size_bytes > 10 * 1024 * 1024:  # 10 MB
             return {
-                "valid": False, 
-                "message": "Failed to open image file", 
-                "details": str(e)
+                "valid": False,
+                "reason": f"Image file too large: {size_bytes} bytes (max 10MB)"
             }
             
+        # All checks passed
+        return {
+            "valid": True,
+            "format": image_format,
+            "size": size_bytes,
+            "dimensions": f"{width}x{height}"
+        }
+        
     except Exception as e:
         return {
-            "valid": False, 
-            "message": "Image validation failed", 
-            "details": str(e)
+            "valid": False,
+            "reason": f"Invalid image: {str(e)}"
         }
 
-def analyze_screenshot(screenshot_path):
-    """Analyze screenshot using Claude API to extract time slots and meeting information"""
-    start_time = time.time()
-    logger.info(f"Starting screenshot analysis for: {screenshot_path}")
-    debug_logs = []
-
-    # Validate the image
-    validation_result = validate_image(screenshot_path)
-    if validation_result['valid'] is False:
-        logger.error(f"Image validation failed: {validation_result['message']}")
-        debug_logs.append({"message": f"Image validation failed: {validation_result['message']}", "type": "error"})
-        return {
-            "success": False,
-            "message": validation_result['message'],
-            "debug_logs": debug_logs
-        }
-
-    # Check network connectivity
-    connectivity_success, connectivity_logs = check_network_connectivity()
-    debug_logs.extend(connectivity_logs)
+def analyze_screenshot(image_data, debug_logs=None):
+    """
+    Analyze a calendar screenshot using the Claude API.
     
-    if not connectivity_success:
-        connectivity_message = connectivity_logs[-1]["message"] if connectivity_logs else "Unknown connectivity issue"
-        logger.error(f"Network connectivity check failed: {connectivity_message}")
-        return {
-            "success": False,
-            "message": f"Network connectivity issue: {connectivity_message}. Please check your internet connection.",
-            "debug_logs": debug_logs
-        }
-
+    Args:
+        image_data (bytes): The image data to analyze.
+        debug_logs (list, optional): List to append debug logs to.
+        
+    Returns:
+        dict: The analysis results.
+    """
+    if debug_logs is None:
+        debug_logs = []
+    
+    debug_logs.append({
+        "message": f"Starting screenshot analysis",
+        "type": "info"
+    })
+    
     try:
-        # Get API key from environment
-        api_key = os.environ.get('CLAUDE_API_KEY')
-        if not api_key:
-            logger.error("API key not found in environment variables")
-            debug_logs.append({"message": "API key not found in environment variables", "type": "error"})
+        # Check if image data is valid
+        validation_result = validate_image(image_data)
+        if not validation_result["valid"]:
+            debug_logs.append({
+                "message": f"Image validation failed: {validation_result['reason']}",
+                "type": "error"
+            })
             return {
                 "success": False,
-                "message": "Claude API key not found. Please configure your environment variables.",
+                "error": f"Invalid image: {validation_result['reason']}",
                 "debug_logs": debug_logs
             }
         
-        # Log masked API key for debugging
-        masked_key = f"{api_key[:5]}...{api_key[-2:]}"
-        logger.info(f"API key found (masked: {masked_key})")
-        debug_logs.append({"message": f"API key found (masked: {masked_key})", "type": "info"})
+        debug_logs.append({
+            "message": f"Image validated successfully. Format: {validation_result['format']}, Size: {validation_result['size']} bytes",
+            "type": "info"
+        })
         
-        # Get image dimensions and details for debugging
-        try:
-            with Image.open(screenshot_path) as img:
-                width, height = img.size
-                format_name = img.format
-                mode = img.mode
-                file_size = os.path.getsize(screenshot_path) / 1024  # Size in KB
-                image_info = f"Image details: {width}x{height} pixels, {format_name}, {mode}, {file_size:.1f} KB"
-                logger.info(image_info)
-                debug_logs.append({"message": image_info, "type": "info"})
-        except Exception as e:
-            logger.warning(f"Could not get image details: {str(e)}")
-            debug_logs.append({"message": f"Could not get image details: {str(e)}", "type": "warning"})
+        # Check network connectivity
+        connectivity = check_network_connectivity()
+        if not connectivity["success"]:
+            debug_logs.append({
+                "message": f"Network connectivity check failed: {connectivity['error']}",
+                "type": "error"
+            })
+            return {
+                "success": False,
+                "error": f"Network error: {connectivity['error']}",
+                "debug_logs": debug_logs
+            }
         
-        # Initialize Anthropic client
-        client = anthropic.Anthropic(api_key=api_key)
-        logger.info("Anthropic client initialized")
+        debug_logs.append({
+            "message": f"Network connectivity confirmed: {connectivity['message']}",
+            "type": "info"
+        })
         
-        # Encode the image to base64
-        b64_image = encode_image_to_base64(screenshot_path)
-        logger.info(f"Image encoded to base64 (length: {len(b64_image)} characters)")
+        # Get API key
+        api_key = os.environ.get("CLAUDE_API_KEY")
+        if not api_key:
+            debug_logs.append({
+                "message": "Claude API key not found in environment variables",
+                "type": "error"
+            })
+            return {
+                "success": False,
+                "error": "API key not configured",
+                "debug_logs": debug_logs
+            }
         
-        # Define the API request
-        prompt_text = """
-This image contains a conversation or calendar screenshot. Please extract ALL date, time, and duration information for potential meeting slots.
-
-Important instructions:
-1. Return only a JSON array of time slots
-2. Each slot must include date, start time, end time (if available), and timezone (if specified)
-3. If multiple time slots are available, include them all as separate objects
-4. If multiple dates have the same time slots, create separate entries for each date
-5. If the image suggests or requests availability rather than specific times, indicate this in the response 
-6. Output only valid JSON with this exact structure
-
-Example response:
-{
-  "type": "time_slots",
-  "slots": [
-    {
-      "date": "2023-11-15",
-      "start_time": "10:00",
-      "end_time": "11:00", 
-      "timezone": "EST",
-      "is_suggested": true
-    },
-    {
-      "date": "2023-11-16",
-      "start_time": "14:30",
-      "end_time": "15:30",
-      "timezone": "EST",
-      "is_suggested": true
-    }
-  ]
-}
-
-For availability requests, use:
-{
-  "type": "availability_request",
-  "message": "Requesting availability for Thursday or Friday afternoon"
-}
-
-Respond ONLY with the JSON. No explanations or conversation."""
-
-        # Create the request messages array
-        messages = [
+        # Validate API key format
+        if not api_key.startswith("sk-"):
+            debug_logs.append({
+                "message": "Invalid API key format (should start with 'sk-')",
+                "type": "error"
+            })
+            return {
+                "success": False,
+                "error": "Invalid API key format",
+                "debug_logs": debug_logs
+            }
+        
+        debug_logs.append({
+            "message": "API key validated (format check only)",
+            "type": "info"
+        })
+        
+        debug_logs.append({
+            "message": "Creating Anthropic client",
+            "type": "info"
+        })
+        
+        client = anthropic.Anthropic(
+            api_key=api_key
+        )
+        
+        # Encode image to base64
+        image_base64 = base64.b64encode(image_data).decode("utf-8")
+        
+        debug_logs.append({
+            "message": f"Image encoded to base64 (length: {len(image_base64)} chars)",
+            "type": "info"
+        })
+        
+        # Define system prompt
+        system_prompt = """You are a helpful calendar assistant that analyzes calendar screenshots. 
+        Your task is to carefully extract time slots from calendar screenshots, checking if they are available or if they conflict with existing events.
+        Identify if the screenshot is showing a time suggestion or a time request from the user.
+        For suggestions, note whether the time slots are available or unavailable.
+        For requests, provide all relevant time slots mentioned.
+        
+        Respond with a JSON object that includes:
+        1. analysis - Brief text summarization of what the screenshot shows
+        2. is_suggestion - Boolean indicating if it's a suggestion (true) or request (false)
+        3. time_slots - Array of objects, each with:
+           - start_time: ISO datetime
+           - end_time: ISO datetime
+           - available: Boolean indicating if the slot is available
+           - context: Any relevant context about this time slot
+           - conflicts: Array of conflicting events if unavailable
+        
+        Format dates in ISO 8601 format (YYYY-MM-DDTHH:MM:SS). Be accurate with all times."""
+        
+        # Define the prompt text
+        prompt_text = "Please analyze this calendar screenshot and extract all available and unavailable time slots. Focus on identifying whether this is a suggested time or a request for available times."
+        
+        # Create message content
+        message_content = [
             {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": prompt_text
-                    },
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/png",
-                            "data": b64_image
-                        }
-                    }
-                ]
+                "type": "text",
+                "text": prompt_text
+            },
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": image_base64
+                }
             }
         ]
         
-        # Log the API request (without the base64 data for brevity)
+        # Log the API request details (truncating the base64 image for brevity)
         debug_request = {
             "model": "claude-3-5-sonnet-20240620",
-            "max_tokens": 1000,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": prompt_text
-                        },
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": f"{b64_image[:20]}...{b64_image[-20:]}" # Truncated for logs
-                            }
-                        }
-                    ]
-                }
-            ]
+            "max_tokens": 4000,
+            "prompt": prompt_text,
+            "image_data": image_base64[:100] + "..." + image_base64[-100:] # Truncated for logs
         }
         
-        # Print full request details (except base64 data)
-        print("\n---------- ANTHROPIC API REQUEST ----------")
-        print(f"Model: claude-3-5-sonnet-20240620")
-        print(f"Max tokens: 1000")
-        print(f"Prompt: {prompt_text}")
-        print(f"Image Base64 length: {len(b64_image)} characters")
-        print("-------------------------------------------\n")
+        # Print the request details to the console
+        print("===== CLAUDE API REQUEST =====")
+        print(f"MODEL: claude-3-5-sonnet-20240620")
+        print(f"MAX TOKENS: 4000")
+        print(f"PROMPT: {prompt_text}")
+        print(f"SYSTEM PROMPT: {system_prompt[:100]}...")
+        print(f"IMAGE: Base64 data of {len(image_base64)} chars")
+        print("==============================")
         
-        logger.info("Analyzing with Claude API...")
-        debug_logs.append({"message": "Analyzing with Claude API...", "type": "info"})
-        debug_logs.append({"message": f"API Request: {json.dumps(debug_request)}", "type": "debug"})
+        debug_logs.append({
+            "message": "Sending request to Claude API",
+            "type": "info"
+        })
         
-        # Make the API call
-        api_start_time = time.time()
-        message = client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=1000,
-            messages=messages
-        )
-        api_end_time = time.time()
-        api_duration = api_end_time - api_start_time
+        # Log start time
+        start_time = time.time()
         
-        # Print full response details
-        print("\n---------- ANTHROPIC API RESPONSE ----------")
-        print(f"Response time: {api_duration:.2f} seconds")
-        print(f"Content type: {type(message.content)}")
-        print(f"Full content: {message.content}")
-        print(f"Stop reason: {message.stop_reason}")
-        print(f"Stop sequence: {message.stop_sequence}")
-        print(f"Model: {message.model}")
-        print(f"Usage: {message.usage}")
-        print("--------------------------------------------\n")
-        
-        # Log API response time
-        logger.info(f"Claude API response received in {api_duration:.2f} seconds")
-        debug_logs.append({"message": f"Claude API response received in {api_duration:.2f} seconds", "type": "info"})
-        
-        # For debugging purpose, log the full response content
-        logger.info(f"Full Claude response: {message.content}")
-        debug_logs.append({"message": f"Raw Claude response: {message.content}", "type": "debug"})
-        debug_logs.append({"message": f"Stop reason: {message.stop_reason}", "type": "debug"})
-        debug_logs.append({"message": f"Usage: {message.usage}", "type": "debug"})
-        
-        # Parse the response
+        # Call Claude API
         try:
-            # Extract content from the message object
-            content = message.content
-            if isinstance(content, list) and len(content) > 0:
-                text_content = content[0].text
-            else:
-                text_content = str(content)
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20240620",
+                max_tokens=4000,
+                system=system_prompt,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": message_content
+                    }
+                ]
+            )
             
-            # Look for JSON in the response
-            json_match = re.search(r'({[\s\S]*})', text_content)
-            if json_match:
-                json_str = json_match.group(1)
-                logger.info(f"JSON found in Claude response: {json_str}")
-                debug_logs.append({"message": f"Extracted JSON: {json_str}", "type": "info"})
-                result = json.loads(json_str)
-            else:
-                logger.warning("No JSON found in Claude response")
-                debug_logs.append({"message": "No JSON found in Claude response. Raw text: " + text_content[:100] + "...", "type": "warning"})
-                result = {"type": "error", "message": "Failed to parse time slots from Claude response"}
+            # Calculate response time
+            response_time = time.time() - start_time
             
-            # Process the result
-            if result.get("type") == "time_slots" and len(result.get("slots", [])) > 0:
-                slots_count = len(result.get("slots", []))
-                logger.info(f"Successfully extracted {slots_count} time slots from image")
-                debug_logs.append({"message": f"Successfully extracted {slots_count} time slots from image", "type": "success"})
-                return {
-                    "success": True,
-                    "time_slots": result.get("slots", []),
-                    "is_suggestion": True,
-                    "debug_logs": debug_logs
-                }
-            elif result.get("type") == "availability_request":
-                logger.info("Detected availability request rather than specific time slots")
-                debug_logs.append({"message": "Detected availability request rather than specific time slots", "type": "info"})
-                return {
-                    "success": True,
-                    "message": result.get("message", "Availability request detected"),
-                    "type": "availability_request",
-                    "time_slots": [],
-                    "is_suggestion": False,
-                    "debug_logs": debug_logs
-                }
-            else:
-                logger.warning("Claude AI couldn't find any time slots in this image")
-                debug_logs.append({"message": "Claude AI couldn't find any time slots in this image", "type": "warning"})
+            # Print the full response details
+            print("===== CLAUDE API RESPONSE =====")
+            print(f"RESPONSE TIME: {response_time:.2f} seconds")
+            print(f"CONTENT TYPE: {type(response.content)}")
+            print(f"FULL CONTENT: {response.content}")
+            print(f"STOP REASON: {response.stop_reason}")
+            print(f"STOP SEQUENCE: {response.stop_sequence}")
+            print(f"MODEL: {response.model}")
+            print(f"USAGE: {response.usage}")
+            print("===============================")
+            
+            debug_logs.append({
+                "message": f"Received response from Claude API (took {response_time:.2f}s)",
+                "type": "info"
+            })
+            
+            # Save raw response for debugging
+            debug_logs.append({
+                "message": f"Raw Claude response: {response.content}",
+                "type": "debug"
+            })
+            
+            # Extract the text content from response
+            content = response.content[0].text
+            
+            debug_logs.append({
+                "message": "Parsing JSON response",
+                "type": "info"
+            })
+            
+            # Try to parse JSON from the content
+            try:
+                # Find JSON in the response
+                json_match = re.search(r'```json(.*?)```', content, re.DOTALL)
+                
+                if json_match:
+                    json_content = json_match.group(1).strip()
+                    result = json.loads(json_content)
+                    debug_logs.append({
+                        "message": "JSON successfully parsed from Claude response",
+                        "type": "info"
+                    })
+                else:
+                    # If no JSON block found, try to parse the entire content
+                    content = content.strip()
+                    if content.startswith('{') and content.endswith('}'):
+                        result = json.loads(content)
+                        debug_logs.append({
+                            "message": "JSON successfully parsed from direct content",
+                            "type": "info"
+                        })
+                    else:
+                        # No parseable JSON
+                        debug_logs.append({
+                            "message": "No JSON found in Claude response",
+                            "type": "error"
+                        })
+                        debug_logs.append({
+                            "message": f"Response content: {content[:200]}...",
+                            "type": "debug"
+                        })
+                        return {
+                            "success": False,
+                            "error": "Failed to parse analysis results",
+                            "analysis": "The AI was unable to analyze the calendar screenshot correctly.",
+                            "debug_logs": debug_logs
+                        }
+                
+                # Process time slots if present
+                if "time_slots" in result:
+                    for slot in result["time_slots"]:
+                        # Convert ISO strings to datetime objects
+                        try:
+                            slot["start_time"] = datetime.fromisoformat(slot["start_time"].replace("Z", "+00:00"))
+                            slot["end_time"] = datetime.fromisoformat(slot["end_time"].replace("Z", "+00:00"))
+                        except ValueError as e:
+                            debug_logs.append({
+                                "message": f"Error parsing datetime: {str(e)}",
+                                "type": "error"
+                            })
+                            # Set default values if parsing fails
+                            slot["start_time"] = datetime.now()
+                            slot["end_time"] = datetime.now() + timedelta(hours=1)
+                        
+                        # Ensure conflicts is always a list
+                        if "conflicts" not in slot:
+                            slot["conflicts"] = []
+                
+                # Return the parsed result with debug logs
+                result["success"] = True
+                result["debug_logs"] = debug_logs
+                return result
+                
+            except json.JSONDecodeError as e:
+                debug_logs.append({
+                    "message": f"JSON decode error: {str(e)}",
+                    "type": "error"
+                })
+                debug_logs.append({
+                    "message": f"Response content: {content[:200]}...",
+                    "type": "debug"
+                })
                 return {
                     "success": False,
-                    "message": "Claude AI couldn't find any time slots in this image\nTry a clearer screenshot or ensure the image contains time information",
+                    "error": "Failed to parse analysis results",
+                    "analysis": "The AI response was not in the expected format.",
                     "debug_logs": debug_logs
                 }
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from Claude response: {e}")
-            logger.debug(f"Response content that failed parsing: {text_content}")
-            debug_logs.append({"message": f"Failed to parse JSON from Claude response: {e}", "type": "error"})
-            debug_logs.append({"message": f"Raw response: {text_content[:200]}...", "type": "debug"})
+                
+        except anthropic.APIError as e:
+            error_message = str(e)
+            debug_logs.append({
+                "message": f"Claude API error: {error_message}",
+                "type": "error"
+            })
             return {
                 "success": False,
-                "message": "Error parsing Claude API response. Please try again with a clearer image.",
+                "error": f"API error: {error_message}",
                 "debug_logs": debug_logs
             }
+            
+        except Exception as e:
+            error_message = str(e)
+            debug_logs.append({
+                "message": f"Unexpected error during API call: {error_message}",
+                "type": "error"
+            })
+            return {
+                "success": False,
+                "error": f"Error: {error_message}",
+                "debug_logs": debug_logs
+            }
+            
     except Exception as e:
-        logger.error(f"Error during Claude API analysis: {str(e)}")
-        debug_logs.append({"message": f"Error during Claude API analysis: {str(e)}", "type": "error"})
+        error_message = str(e)
+        debug_logs.append({
+            "message": f"Unexpected error in analyze_screenshot: {error_message}",
+            "type": "error"
+        })
         return {
             "success": False,
-            "message": f"Error analyzing screenshot: {str(e)}",
+            "error": f"Error: {error_message}",
             "debug_logs": debug_logs
-        }
-    finally:
-        total_time = time.time() - start_time
-        logger.info(f"Total analysis time: {total_time:.2f} seconds")
-        debug_logs.append({"message": f"Total analysis time: {total_time:.2f} seconds", "type": "info"}) 
+        } 

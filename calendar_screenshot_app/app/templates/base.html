@@ -319,15 +319,15 @@
             // Clear logs
             clearBtn.addEventListener('click', function() {
                 debugLogs.innerHTML = '';
-                addDebugEntry('Logs cleared', 'info');
-                updateDebugStatus('Ready', 'info');
+                window.addDebugEntry('Logs cleared', 'info');
+                window.updateDebugStatus('Ready', 'info');
             });
             
             // Add window error handler
             window.addEventListener('error', function(event) {
                 const errorMsg = `JavaScript Error: ${event.message} at ${event.filename}:${event.lineno}`;
-                addDebugEntry(errorMsg, 'error');
-                updateDebugStatus('Error', 'error');
+                window.addDebugEntry(errorMsg, 'error');
+                window.updateDebugStatus('Error', 'error');
                 // Auto-expand console on errors
                 debugConsole.classList.add('expanded');
                 toggleBtn.textContent = 'Hide';
@@ -341,7 +341,7 @@
                     const items = e.clipboardData.items;
                     for (let i = 0; i < items.length; i++) {
                         if (items[i].type.indexOf('image') !== -1) {
-                            addDebugEntry('Image data detected in clipboard', 'info');
+                            window.addDebugEntry('Image data detected in clipboard', 'info');
                             break;
                         }
                     }
@@ -358,10 +358,14 @@
                 }
             };
             
-            // Expose functions to global scope
+            // Define the debug functions in the global scope immediately
+            // This ensures they're available for other scripts
             window.addDebugEntry = function(message, type) {
+                // Default type to 'info' if not provided
+                type = type || 'info';
+                
                 const entry = document.createElement('div');
-                entry.className = `log-entry ${type || 'info'}`;
+                entry.className = `log-entry ${type}`;
                 
                 const timestamp = new Date().toLocaleTimeString();
                 entry.innerHTML = `<span class="log-time">${timestamp}</span> <span class="log-message">${message}</span>`;
@@ -372,7 +376,7 @@
                 debugLogs.scrollTop = debugLogs.scrollHeight;
                 
                 // Update status based on log type
-                updateDebugStatus(type.charAt(0).toUpperCase() + type.slice(1), type);
+                window.updateDebugStatus(type.charAt(0).toUpperCase() + type.slice(1), type);
                 
                 // Auto-expand console for errors and warnings
                 if (type === 'error' || type === 'warning') {
@@ -380,6 +384,9 @@
                     toggleBtn.textContent = 'Hide';
                     isConsoleVisible = true;
                 }
+                
+                // Also log to console
+                console.log(`[${type}] ${message}`);
                 
                 return entry;
             };
@@ -394,6 +401,12 @@
             
             // Check for errors on load
             setTimeout(checkForErrorsAndExpand, 500);
+            
+            // Signal that the debug console is ready
+            window.debugConsoleReady = true;
+            
+            // Log initialization message
+            window.addDebugEntry('Debug console initialized', 'info');
         }
     </script>
     

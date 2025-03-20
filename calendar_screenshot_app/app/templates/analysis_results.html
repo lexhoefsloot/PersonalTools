@@ -312,10 +312,11 @@
 </div>
 
 <!-- Debug Logs JSON Data -->
-{% if result.debug_logs %}
-<script id="debug-logs-data" type="application/json">
-{{ result.debug_logs|tojson }}
-</script>
+{% if result and result.debug_logs %}
+    <!-- Store debug logs in a separate script element -->
+    <script id="debug-logs-data" type="application/json">
+        {{ result.debug_logs|tojson }}
+    </script>
 {% endif %}
 
 <!-- Calendar Events JSON Data -->
@@ -350,103 +351,146 @@
 {% endif %}
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    console.log("Analysis results page loaded");
-    
-    // Initialize calendar view if slots are available
-    initializeCalendarView();
-    
-    // Display debug logs if available
-    {% if result and result.debug_logs %}
-        console.log("Debug logs available, displaying in console");
-        var debugLogs = {{ result.debug_logs|tojson }};
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log("Analysis results page loaded");
         
-        for (var log of debugLogs) {
-            addDebugEntry(log.message, log.type);
-            
-            // For debug type logs with API response, add a button to show the full response
-            if (log.type === 'debug' && log.message.includes('Raw Claude response:')) {
-                var lastEntry = document.querySelector('.debug-logs .log-entry:last-child');
-                if (lastEntry) {
-                    var showButton = document.createElement('button');
-                    showButton.className = 'btn btn-sm btn-info mt-1';
-                    showButton.textContent = 'Show Full Response';
-                    showButton.onclick = function() {
-                        var responseText = log.message.replace('Raw Claude response: ', '');
-                        var responseDiv = document.createElement('div');
-                        responseDiv.className = 'mt-2 p-2 bg-dark text-light';
-                        responseDiv.style.maxHeight = '200px';
-                        responseDiv.style.overflow = 'auto';
-                        responseDiv.style.whiteSpace = 'pre-wrap';
-                        responseDiv.style.wordBreak = 'break-all';
-                        responseDiv.textContent = responseText;
-                        lastEntry.appendChild(responseDiv);
-                        showButton.style.display = 'none';
-                    };
-                    lastEntry.appendChild(showButton);
+        // Initialize calendar view if slots are available
+        initializeCalendarView();
+        
+        // Display debug logs if available
+        var debugLogsElement = document.getElementById('debug-logs-data');
+        if (debugLogsElement) {
+            console.log("Debug logs available, displaying in console");
+            try {
+                var debugLogs = JSON.parse(debugLogsElement.textContent);
+                
+                // Define a function to add the logs when ready
+                function addDebugLogs() {
+                    if (typeof window.addDebugEntry === 'function') {
+                        // Function exists, use it to add logs
+                        for (var i = 0; i < debugLogs.length; i++) {
+                            var log = debugLogs[i];
+                            window.addDebugEntry(log.message, log.type);
+                            
+                            // For debug type logs with API response, add a button to show the full response
+                            if (log.type === 'debug' && log.message.includes('Raw Claude response:')) {
+                                var lastEntry = document.querySelector('.debug-logs .log-entry:last-child');
+                                if (lastEntry) {
+                                    var showButton = document.createElement('button');
+                                    showButton.className = 'btn btn-sm btn-info mt-1';
+                                    showButton.textContent = 'Show Full Response';
+                                    showButton.onclick = function() {
+                                        var responseText = log.message.replace('Raw Claude response: ', '');
+                                        var responseDiv = document.createElement('div');
+                                        responseDiv.className = 'mt-2 p-2 bg-dark text-light';
+                                        responseDiv.style.maxHeight = '200px';
+                                        responseDiv.style.overflow = 'auto';
+                                        responseDiv.style.whiteSpace = 'pre-wrap';
+                                        responseDiv.style.wordBreak = 'break-all';
+                                        responseDiv.textContent = responseText;
+                                        lastEntry.appendChild(responseDiv);
+                                        showButton.style.display = 'none';
+                                    };
+                                    lastEntry.appendChild(showButton);
+                                }
+                            }
+                        }
+                        
+                        // Auto-expand console if there are warnings or errors
+                        var hasErrors = debugLogs.some(function(log) { 
+                            return log.type === 'error' || log.type === 'warning';
+                        });
+                        if (hasErrors) {
+                            document.querySelector('.debug-console-container').classList.add('expanded');
+                            document.querySelector('.toggle-console-btn').textContent = 'Hide';
+                        }
+                    } else {
+                        // Function doesn't exist yet, fallback to logging to console
+                        console.log("addDebugEntry function not available, falling back to console logging:");
+                        for (var i = 0; i < debugLogs.length; i++) {
+                            var log = debugLogs[i];
+                            console.log('[' + log.type + '] ' + log.message);
+                        }
+                        
+                        // Try again after a short delay
+                        setTimeout(addDebugLogs, 500);
+                    }
                 }
+                
+                // Start the process
+                addDebugLogs();
+            } catch (error) {
+                console.error("Error parsing debug logs:", error);
             }
+        } else {
+            console.log("No debug logs available");
         }
         
-        // Auto-expand console if there are warnings or errors
-        var hasErrors = debugLogs.some(function(log) { 
-            return log.type === 'error' || log.type === 'warning';
-        });
-        if (hasErrors) {
-            document.querySelector('.debug-console-container').classList.add('expanded');
-            document.querySelector('.toggle-console-btn').textContent = 'Hide';
-        }
-    {% else %}
-        console.log("No debug logs available");
-    {% endif %}
-    
-    // Setup copy buttons
-    setupCopyButtons();
-});
-
-// Function to initialize calendar view
-function initializeCalendarView() {
-    // Check if calendar element exists
-    var calendarEl = document.getElementById('calendar');
-    if (!calendarEl) {
-        console.log("No calendar element found");
-        return;
-    }
-    
-    console.log("Initializing calendar view");
-    
-    // Logic for calendar initialization would go here
-    // This is a placeholder since we're focusing on debugging
-}
-
-// Function to set up copy buttons
-function setupCopyButtons() {
-    // Find all copy buttons
-    var copyButtons = document.querySelectorAll('.copy-btn');
-    console.log("Found " + copyButtons.length + " copy buttons");
-    
-    // Add click handler to each button
-    copyButtons.forEach(function(button) {
-        button.addEventListener('click', function() {
-            var textToCopy = this.getAttribute('data-text');
-            
-            navigator.clipboard.writeText(textToCopy)
-                .then(function() {
-                    // Show success feedback
-                    var originalText = button.innerHTML;
-                    button.innerHTML = '<i class="bi bi-check"></i> Copied!';
-                    
-                    // Reset after 2 seconds
-                    setTimeout(function() {
-                        button.innerHTML = originalText;
-                    }, 2000);
-                })
-                .catch(function(err) {
-                    console.error('Could not copy text: ', err);
-                    addDebugEntry('Failed to copy to clipboard: ' + err, 'error');
-                });
-        });
+        // Setup copy buttons
+        setupCopyButtons();
     });
-}
+
+    // Function to initialize calendar view
+    function initializeCalendarView() {
+        // Check if calendar container exists
+        var timeSlotCalendars = document.getElementById('time-slot-calendars');
+        if (!timeSlotCalendars) {
+            console.log("No calendar container found");
+            return;
+        }
+        
+        console.log("Initializing calendar view");
+        
+        // This is a placeholder for calendar initialization code
+        // In a real implementation, we would use FullCalendar or similar library
+    }
+
+    // Function to set up copy buttons
+    function setupCopyButtons() {
+        // Find all copy buttons
+        var copyButtons = document.querySelectorAll('.copy-btn');
+        console.log("Found " + copyButtons.length + " copy buttons");
+        
+        // Add click handler to each button
+        copyButtons.forEach(function(button) {
+            button.addEventListener('click', function() {
+                var textToCopy = this.getAttribute('data-text');
+                
+                // Use safe clipboard access
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(textToCopy)
+                        .then(function() {
+                            // Show success feedback
+                            var originalText = button.innerHTML;
+                            button.innerHTML = '<i class="bi bi-check"></i> Copied!';
+                            
+                            // Reset after 2 seconds
+                            setTimeout(function() {
+                                button.innerHTML = originalText;
+                            }, 2000);
+                        })
+                        .catch(function(err) {
+                            console.error('Could not copy text: ', err);
+                            
+                            // Use window.addDebugEntry if available, otherwise fallback to console
+                            if (typeof window.addDebugEntry === 'function') {
+                                window.addDebugEntry('Failed to copy to clipboard: ' + err, 'error');
+                            } else {
+                                console.error('Failed to copy to clipboard: ' + err);
+                            }
+                        });
+                } else {
+                    console.error('Clipboard API not available');
+                    
+                    // Use window.addDebugEntry if available, otherwise fallback to console
+                    if (typeof window.addDebugEntry === 'function') {
+                        window.addDebugEntry('Clipboard API not available in this browser', 'error');
+                    } else {
+                        console.error('Clipboard API not available in this browser');
+                    }
+                }
+            });
+        });
+    }
 </script>
 {% endblock %} 
