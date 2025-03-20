@@ -131,8 +131,8 @@ def find_all_calendar_databases():
     return possible_dbs
 
 def get_thunderbird_calendar_events():
-    # Direct path to the calendar database
-    calendar_db = os.path.expanduser("~/.thunderbird/qw0vnk3t.default-default/calendar-data/local.sqlite")
+    # Try using cache.sqlite instead of local.sqlite
+    calendar_db = os.path.expanduser("~/.thunderbird/qw0vnk3t.default-default/calendar-data/cache.sqlite")
     
     if not os.path.exists(calendar_db):
         print(f"Error: Calendar database not found at {calendar_db}")
@@ -140,7 +140,7 @@ def get_thunderbird_calendar_events():
     
     print(f"Using calendar database: {calendar_db}")
     
-    # Examine database structure for debugging
+    # First examine the database structure
     examine_database(calendar_db)
     
     try:
@@ -150,44 +150,60 @@ def get_thunderbird_calendar_events():
         # Get today's date
         today = date.today()
         
-        # Query for events today - but first check if cal_items exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cal_items';")
-        if cursor.fetchone():
-            query = """
-            SELECT 
-                item_title,
-                item_start_date,
-                item_end_date,
-                item_location
-            FROM cal_items
-            WHERE date(item_start_date) = date(?)
-            ORDER BY item_start_date
-            """
-            
-            cursor.execute(query, (today.isoformat(),))
-            events = cursor.fetchall()
-            
-            if not events:
-                print(f"No events found for today ({today.strftime('%A, %B %d, %Y')})")
-                return
-            
-            print(f"\nEvents for {today.strftime('%A, %B %d, %Y')}:")
-            print("-" * 50)
-            
-            for event in events:
-                title, start, end, location = event
-                try:
-                    start_time = datetime.fromisoformat(start).strftime("%I:%M %p")
-                    end_time = datetime.fromisoformat(end).strftime("%I:%M %p")
-                except ValueError:
-                    # Handle all-day events
-                    start_time = "All day"
-                    end_time = "All day"
+        # First check what tables are available
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = [table[0] for table in cursor.fetchall()]
+        
+        print("\nAttempting to find calendar events for today...")
+        
+        # Try different tables that might contain calendar data
+        event_tables = [table for table in tables if 'event' in table.lower() or 'cal' in table.lower() or 'item' in table.lower()]
+        
+        found_events = False
+        for table in event_tables:
+            try:
+                # Get columns in this table
+                cursor.execute(f"PRAGMA table_info({table});")
+                columns = cursor.fetchall()
+                column_names = [col[1] for col in columns]
                 
-                location_str = f" at {location}" if location else ""
-                print(f"{start_time} - {end_time}: {title}{location_str}")
-        else:
-            print("Table 'cal_items' does not exist. Please check the database structure output above.")
+                # Look for datetime columns and title/summary columns
+                datetime_cols = [col for col in column_names if 'start' in col.lower() or 'date' in col.lower() or 'time' in col.lower()]
+                title_cols = [col for col in column_names if 'title' in col.lower() or 'summary' in col.lower() or 'subject' in col.lower()]
+                
+                if datetime_cols and title_cols:
+                    print(f"\nChecking table: {table}")
+                    print(f"Date column: {datetime_cols[0]}")
+                    print(f"Title column: {title_cols[0]}")
+                    
+                    # Try querying this table for today's events
+                    query = f"SELECT * FROM {table}"
+                    cursor.execute(query)
+                    results = cursor.fetchall()
+                    
+                    if results:
+                        print(f"Found {len(results)} rows in table {table}")
+                        
+                        # Print sample results
+                        for i, result in enumerate(results[:5]):  # Show up to 5 events
+                            event_data = {}
+                            for idx, col in enumerate(column_names):
+                                if idx < len(result):
+                                    event_data[col] = result[idx]
+                            
+                            print(f"\nEvent {i+1}:")
+                            for key, value in event_data.items():
+                                # Truncate long values
+                                if isinstance(value, str) and len(value) > 50:
+                                    value = value[:47] + "..."
+                                print(f"  {key}: {value}")
+                        
+                        found_events = True
+            except sqlite3.Error as e:
+                print(f"Error querying table {table}: {e}")
+        
+        if not found_events:
+            print("Could not find any calendar events in the database")
         
         conn.close()
         
