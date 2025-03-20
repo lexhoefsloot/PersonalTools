@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 import subprocess
-from datetime import date
+from datetime import date, datetime
 import os
 import json
+import shutil
 
 def get_thunderbird_calendar_events():
-    # Path to Thunderbird executable
-    thunderbird_path = "/Applications/Thunderbird.app/Contents/MacOS/thunderbird"
+    # Try to find Thunderbird executable
+    thunderbird_path = shutil.which('thunderbird') or '/usr/bin/thunderbird'
     
     if not os.path.exists(thunderbird_path):
-        print("Error: Thunderbird not found")
+        print("Error: Thunderbird not found. Please ensure it's installed.")
         return
     
     try:
