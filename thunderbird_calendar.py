@@ -1,90 +1,78 @@
 #!/usr/bin/env python3
-import subprocess
-from datetime import date, datetime
 import os
 import json
-import shutil
+from datetime import date, datetime
+import sqlite3
+import glob
+
+def find_thunderbird_profile():
+    """Find the Thunderbird profile directory"""
+    # Common profile locations
+    possible_paths = [
+        os.path.expanduser("~/.thunderbird/*.default"),
+        os.path.expanduser("~/.thunderbird/*.default-release"),
+        os.path.expanduser("~/.thunderbird/*.default-esr")
+    ]
+    
+    for path_pattern in possible_paths:
+        matches = glob.glob(path_pattern)
+        if matches:
+            return matches[0]
+    return None
 
 def get_thunderbird_calendar_events():
-    # Try to find Thunderbird executable
-    thunderbird_path = shutil.which('thunderbird') or '/usr/bin/thunderbird'
+    profile_dir = find_thunderbird_profile()
+    if not profile_dir:
+        print("Error: Could not find Thunderbird profile directory")
+        return
     
-    if not os.path.exists(thunderbird_path):
-        print("Error: Thunderbird not found. Please ensure it's installed.")
+    calendar_db = os.path.join(profile_dir, "calendar-data", "local.sqlite")
+    if not os.path.exists(calendar_db):
+        print("Error: Calendar database not found")
         return
     
     try:
+        conn = sqlite3.connect(calendar_db)
+        cursor = conn.cursor()
+        
         # Get today's date
         today = date.today()
         
-        # Create a temporary JavaScript file to query the calendar
-        js_content = """
-        var calendar = Components.classes["@mozilla.org/calendar/calendar-service;1"]
-            .getService(Components.interfaces.calICalendarService)
-            .getDefaultCalendar("local");
-        
-        var start = new Date();
-        start.setHours(0, 0, 0, 0);
-        var end = new Date();
-        end.setHours(23, 59, 59, 999);
-        
-        var filter = calendar.createItemFilter();
-        filter.startDate = start;
-        filter.endDate = end;
-        
-        var items = calendar.getItems(filter, 0);
-        var events = [];
-        
-        while (items.hasMoreElements()) {
-            var item = items.getNext().QueryInterface(Components.interfaces.calIEvent);
-            events.push({
-                title: item.title,
-                start: item.startDate.toJSDate().toISOString(),
-                end: item.endDate.toJSDate().toISOString(),
-                location: item.getProperty("LOCATION") || ""
-            });
-        }
-        
-        print(JSON.stringify(events));
+        # Query for events today
+        query = """
+        SELECT 
+            item_title,
+            item_start_date,
+            item_end_date,
+            item_location
+        FROM cal_items
+        WHERE date(item_start_date) = date(?)
+        ORDER BY item_start_date
         """
         
-        # Write the JavaScript to a temporary file
-        with open("/tmp/calendar_query.js", "w") as f:
-            f.write(js_content)
+        cursor.execute(query, (today.isoformat(),))
+        events = cursor.fetchall()
         
-        # Run Thunderbird with the JavaScript file
-        cmd = [thunderbird_path, "-chrome", "file:///tmp/calendar_query.js"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            print("Error running Thunderbird command")
+        if not events:
+            print("No events found for today")
             return
         
-        try:
-            events = json.loads(result.stdout)
-            
-            if not events:
-                print("No events found for today")
-                return
-            
-            print(f"\nEvents for {today.strftime('%A, %B %d, %Y')}:")
-            print("-" * 50)
-            
-            for event in events:
-                start_time = datetime.fromisoformat(event['start']).strftime("%I:%M %p")
-                end_time = datetime.fromisoformat(event['end']).strftime("%I:%M %p")
-                location_str = f" at {event['location']}" if event['location'] else ""
-                print(f"{start_time} - {end_time}: {event['title']}{location_str}")
-                
-        except json.JSONDecodeError:
-            print("Error parsing calendar data")
-            
+        print(f"\nEvents for {today.strftime('%A, %B %d, %Y')}:")
+        print("-" * 50)
+        
+        for event in events:
+            title, start, end, location = event
+            start_time = datetime.fromisoformat(start).strftime("%I:%M %p")
+            end_time = datetime.fromisoformat(end).strftime("%I:%M %p")
+            location_str = f" at {location}" if location else ""
+            print(f"{start_time} - {end_time}: {title}{location_str}")
+        
+        conn.close()
+        
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
     except Exception as e:
         print(f"An error occurred: {e}")
-    finally:
-        # Clean up temporary file
-        if os.path.exists("/tmp/calendar_query.js"):
-            os.remove("/tmp/calendar_query.js")
 
 if __name__ == "__main__":
     get_thunderbird_calendar_events() 
