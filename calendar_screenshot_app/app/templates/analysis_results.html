@@ -353,6 +353,9 @@
                 // Parse the debug logs JSON
                 const debugLogs = JSON.parse(debugLogsEl.textContent);
                 
+                // Check if there are any error logs
+                const hasErrors = debugLogs.some(log => log.type === 'error' || log.type === 'warning');
+                
                 // Display each log in the debug console
                 debugLogs.forEach(log => {
                     if (window.addDebugLog) {
@@ -372,6 +375,18 @@
                         window.setDebugStatus('warning');
                     } else {
                         window.setDebugStatus('info');
+                    }
+                }
+                
+                // Auto-expand debug console if there are errors or warnings
+                if (hasErrors) {
+                    const debugConsole = document.getElementById('debug-console');
+                    if (debugConsole && !debugConsole.classList.contains('expanded')) {
+                        debugConsole.classList.add('expanded');
+                        const debugToggleBtn = document.getElementById('debug-toggle-btn');
+                        if (debugToggleBtn) {
+                            debugToggleBtn.textContent = 'Collapse';
+                        }
                     }
                 }
             } catch (e) {

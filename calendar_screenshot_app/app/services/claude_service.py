@@ -18,11 +18,68 @@ def encode_image_to_base64(image_path):
         logger.info(f"Read image from {image_path}, size: {len(image_data)/1024:.2f} KB")
         return base64.b64encode(image_data).decode('utf-8')
 
+def validate_image(image_path):
+    """Validate that the file is a valid image and get basic info"""
+    try:
+        # Check if file exists
+        if not os.path.exists(image_path):
+            return False, {"error": "Image file not found", "details": f"Path: {image_path}"}
+            
+        # Check file size
+        file_size = os.path.getsize(image_path) / 1024  # KB
+        if file_size < 1:  # Less than 1KB
+            return False, {"error": "Image file too small", "details": f"Size: {file_size:.2f} KB"}
+            
+        # Try to open the image with PIL
+        try:
+            with Image.open(image_path) as img:
+                width, height = img.size
+                format = img.format
+                mode = img.mode
+                
+                # Very small images are likely not useful
+                if width < 100 or height < 100:
+                    return False, {
+                        "error": "Image dimensions too small", 
+                        "details": f"Size: {width}x{height} pixels"
+                    }
+                
+                # Return success with image info
+                return True, {
+                    "size_kb": file_size,
+                    "dimensions": f"{width}x{height}",
+                    "format": format,
+                    "mode": mode
+                }
+                
+        except Exception as e:
+            return False, {"error": "Failed to open image file", "details": str(e)}
+            
+    except Exception as e:
+        return False, {"error": "Image validation failed", "details": str(e)}
+
 def analyze_screenshot(screenshot_path):
     """Analyze screenshot with Claude API to extract meeting time information"""
     try:
         logger.info(f"Starting Claude API analysis for screenshot: {screenshot_path}")
         start_time = time.time()
+        
+        # Validate image first
+        is_valid, image_info = validate_image(screenshot_path)
+        if not is_valid:
+            logger.error(f"Invalid image: {image_info['error']} - {image_info['details']}")
+            return {
+                "error": f"Invalid image: {image_info['error']}",
+                "analysis": f"Could not analyze the image: {image_info['details']}",
+                "time_slots": [],
+                "debug_logs": [
+                    {"message": f"Invalid image: {image_info['error']}", "type": "error"},
+                    {"message": f"Details: {image_info['details']}", "type": "error"},
+                    {"message": "Please ensure you're uploading a valid screenshot with visible text", "type": "info"}
+                ]
+            }
+            
+        logger.info(f"Image validated: {image_info.get('dimensions', 'unknown size')}, {image_info.get('format', 'unknown format')}")
         
         # Get API key from environment variables
         api_key = os.environ.get('CLAUDE_API_KEY')
@@ -150,6 +207,32 @@ def analyze_screenshot(screenshot_path):
             total_duration = time.time() - start_time
             logger.info(f"Total screenshot analysis completed in {total_duration:.2f} seconds")
             
+            # Add debug logs to result for troubleshooting
+            if 'debug_logs' not in result:
+                result['debug_logs'] = []
+                
+            # Add image info to the result for reference
+            result['debug_logs'].extend([
+                {"message": f"Claude API analysis completed in {total_duration:.2f} seconds", "type": "info"},
+                {"message": f"Detected {time_slots_count} time slots with {result.get('confidence', 0):.2f} confidence", "type": "info"},
+                {"message": f"Image details: {image_info.get('dimensions', 'unknown')}, {image_info.get('format', 'unknown')}, {image_info.get('size_kb', 0):.1f} KB", "type": "info"}
+            ])
+            
+            # Add warning if no time slots were detected
+            if time_slots_count == 0:
+                logger.warning("Claude detected no time slots in the image")
+                
+                # Add more detailed explanation based on Claude's analysis
+                explanation = result.get('analysis', 'No details provided')
+                
+                result['debug_logs'].extend([
+                    {"message": "Claude AI couldn't detect any time slots in this image", "type": "warning"},
+                    {"message": f"Claude's analysis: {explanation}", "type": "info"},
+                    {"message": "Check if the image contains visible time information", "type": "info"},
+                    {"message": "Try a screenshot that clearly shows dates, times, or calendar information", "type": "info"},
+                    {"message": f"Image size: {os.path.getsize(screenshot_path)/1024:.1f} KB", "type": "info"}
+                ])
+            
             return result
         
         except json.JSONDecodeError as e:
@@ -158,7 +241,12 @@ def analyze_screenshot(screenshot_path):
             logger.error(f"Raw response that couldn't be parsed: {response_text}")
             return {
                 "error": "Failed to parse Claude API response",
-                "analysis": "The API response could not be parsed as valid JSON."
+                "analysis": "The API response could not be parsed as valid JSON.",
+                "debug_logs": [
+                    {"message": f"JSON decode error: {e}", "type": "error"},
+                    {"message": "Claude returned a response that couldn't be parsed as valid JSON", "type": "error"},
+                    {"message": f"Response preview: {response_text[:200]}...", "type": "info"}
+                ]
             }
             
     except Exception as e:
@@ -166,5 +254,9 @@ def analyze_screenshot(screenshot_path):
         logger.error(f"Error in analyze_screenshot: {str(e)}", exc_info=True)
         return {
             "error": f"Error analyzing screenshot: {str(e)}",
-            "analysis": "An error occurred while analyzing the screenshot with Claude API."
+            "analysis": "An error occurred while analyzing the screenshot with Claude API.",
+            "debug_logs": [
+                {"message": f"Error in Claude analysis: {str(e)}", "type": "error"},
+                {"message": "Check server logs for more detailed information", "type": "info"}
+            ]
         } 

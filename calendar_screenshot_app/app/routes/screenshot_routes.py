@@ -1,5 +1,4 @@
 from flask import Blueprint, jsonify, request, render_template, session, redirect, url_for, flash
-from app.services.screenshot_analyzer import analyze_screenshot as ocr_analyze_screenshot
 from app.services.claude_service import analyze_screenshot as claude_analyze_screenshot
 from app.services.availability import check_availability, find_available_slots
 from app.utils.date_utils import parse_date_range
@@ -23,7 +22,7 @@ bp = Blueprint('screenshot', __name__, url_prefix='/screenshot')
 
 def analyze_screenshot(filename):
     """
-    Analyze screenshot using Claude API, with fallback to OCR
+    Analyze screenshot using Claude API only
     """
     try:
         # Log start of analysis
@@ -32,12 +31,12 @@ def analyze_screenshot(filename):
         # Add debug info for the template
         debug_logs = []
         debug_logs.append({"message": f"Starting screenshot analysis for: {filename}", "type": "info"})
-        debug_logs.append({"message": "Attempting to analyze with Claude API...", "type": "info"})
+        debug_logs.append({"message": "Analyzing with Claude API...", "type": "info"})
         
-        # Try using Claude API first
+        # Use Claude API for analysis
         result = claude_analyze_screenshot(filename)
         
-        # Check if Claude analysis was successful
+        # Check if Claude analysis returned results
         if result and 'time_slots' in result and len(result.get('time_slots', [])) > 0:
             # Log success
             logger.info(f"Claude analysis successful: {len(result['time_slots'])} time slots found")
@@ -64,34 +63,21 @@ def analyze_screenshot(filename):
             # Add debug logs to result
             result['debug_logs'] = debug_logs
             return result
-        
-        # If Claude analysis failed or returned no time slots, fall back to OCR
-        logger.info("Claude analysis failed or returned no time slots, falling back to OCR")
-        debug_logs.append({"message": "Claude analysis failed or returned no time slots, falling back to OCR", "type": "warning"})
-        debug_logs.append({"message": "Starting OCR analysis...", "type": "info"})
-        
-        # Add error from Claude if available
-        if result and 'error' in result:
-            logger.error(f"Claude API error: {result['error']}")
-            debug_logs.append({"message": f"Claude API error: {result['error']}", "type": "error"})
-        
-        # Fall back to OCR analysis
-        ocr_result = ocr_analyze_screenshot(filename)
-        
-        if ocr_result:
-            logger.info(f"OCR analysis successful: {len(ocr_result.get('time_slots', []))} time slots found")
-            debug_logs.append({"message": f"OCR analysis successful: {len(ocr_result.get('time_slots', []))} time slots found", "type": "success"})
-            # Add debug logs to result
-            ocr_result['debug_logs'] = debug_logs
-            return ocr_result
         else:
-            logger.error("Both Claude and OCR analysis failed")
-            debug_logs.append({"message": "Both Claude and OCR analysis failed", "type": "error"})
+            # Claude didn't find any time slots
+            logger.warning("Claude analysis didn't detect any time slots")
+            debug_logs.append({"message": "Claude AI couldn't find any time slots in this image", "type": "warning"})
+            debug_logs.append({"message": "Try a clearer screenshot or ensure the image contains time information", "type": "info"})
+            
+            # Get error message if available
+            error_msg = result.get('error', "No time slots detected in the screenshot")
+            analysis = result.get('analysis', "The image analysis couldn't detect any time information.")
+            
             return {
-                "error": "Failed to extract time information from the screenshot",
+                "error": error_msg,
+                "analysis": analysis,
                 "time_slots": [],
                 "is_suggestion": False,
-                "analysis": "Could not detect any time information in the screenshot",
                 "debug_logs": debug_logs
             }
     
@@ -181,7 +167,17 @@ def upload_screenshot():
         os.unlink(filename)
         
         if not result or 'time_slots' not in result or not result['time_slots']:
-            return render_template('analysis_results.html', result={'error': 'No time slots detected in the screenshot'})
+            # Use a more detailed error message and ensure debug logs are passed
+            error_result = {
+                'error': 'No time slots detected in the screenshot',
+                'analysis': result.get('analysis', 'The analysis could not detect any time slots in the image.'),
+                'debug_logs': result.get('debug_logs', [
+                    {"message": "No time slots were detected in the screenshot", "type": "error"},
+                    {"message": "Check that your screenshot contains clearly visible time information", "type": "info"},
+                    {"message": "Make sure text in the image is clear and readable", "type": "info"}
+                ])
+            }
+            return render_template('analysis_results.html', result=error_result)
         
         # Get all calendar events for the time range to display in the calendar view
         all_events = []
@@ -273,7 +269,13 @@ def upload_screenshot():
                             all_calendar_events=all_events)
     
     except Exception as e:
-        return render_template('analysis_results.html', result={'error': str(e)})
+        return render_template('analysis_results.html', result={
+            'error': str(e),
+            'debug_logs': [
+                {"message": f"Error processing screenshot: {str(e)}", "type": "error"},
+                {"message": "Check application logs for more details", "type": "info"}
+            ]
+        })
 
 @bp.route('/analyze', methods=['POST'])
 def analyze_clipboard():
@@ -313,7 +315,17 @@ def analyze_clipboard():
         os.unlink(filename)
         
         if not result or 'time_slots' not in result or not result['time_slots']:
-            return render_template('analysis_results.html', result={'error': 'No time slots detected in the screenshot'})
+            # Use a more detailed error message and ensure debug logs are passed
+            error_result = {
+                'error': 'No time slots detected in the screenshot',
+                'analysis': result.get('analysis', 'The analysis could not detect any time slots in the image.'),
+                'debug_logs': result.get('debug_logs', [
+                    {"message": "No time slots were detected in the screenshot", "type": "error"},
+                    {"message": "Check that your screenshot contains clearly visible time information", "type": "info"},
+                    {"message": "Make sure text in the image is clear and readable", "type": "info"}
+                ])
+            }
+            return render_template('analysis_results.html', result=error_result)
         
         # Get all calendar events for the time range to display in the calendar view
         all_events = []
@@ -405,7 +417,13 @@ def analyze_clipboard():
                             all_calendar_events=all_events)
     
     except Exception as e:
-        return render_template('analysis_results.html', result={'error': str(e)})
+        return render_template('analysis_results.html', result={
+            'error': str(e),
+            'debug_logs': [
+                {"message": f"Error processing clipboard image: {str(e)}", "type": "error"},
+                {"message": "Check application logs for more details", "type": "info"}
+            ]
+        })
 
 def check_availability(start_time, end_time):
     """
