@@ -447,6 +447,7 @@
             console.log("No slot calendar containers found");
             return;
         }
+        console.log(`Found ${calendarContainers.length} calendar containers to render`);
 
         // Parse the calendar events from the JSON data
         var calendarEventsElement = document.getElementById('all-calendar-events');
@@ -458,7 +459,15 @@
             } catch (error) {
                 console.error("Error parsing calendar events:", error);
             }
+        } else {
+            console.log("No calendar events element found");
         }
+
+        // Find and hide all loading spinners regardless of events
+        document.querySelectorAll('.calendar-loading').forEach(function(loader) {
+            console.log("Hiding loading spinner:", loader.id);
+            loader.style.display = 'none';
+        });
 
         // Render simple calendar views for each slot
         calendarContainers.forEach(function(container, index) {
@@ -467,6 +476,8 @@
             var slotEnd = new Date(container.dataset.slotEnd);
             var slotDate = container.dataset.slotDate;
             var isAvailable = container.dataset.slotAvailable === 'true';
+            
+            console.log(`Rendering calendar for slot ${index+1}: ${slotDate} (${isAvailable ? 'available' : 'unavailable'})`);
             
             // Create a simple calendar representation
             var calendarHtml = '<div class="simple-calendar">';
@@ -491,6 +502,8 @@
                 var eventDate = eventStart.toISOString().split('T')[0];
                 return eventDate === slotDate;
             });
+            
+            console.log(`Found ${dayEvents.length} events for date ${slotDate}`);
             
             if (dayEvents.length > 0) {
                 calendarHtml += '<h6>Today\'s Events:</h6>';
@@ -519,7 +532,10 @@
             // Hide the loading indicator
             var loadingIndicator = document.getElementById('loading-calendar-' + (index + 1));
             if (loadingIndicator) {
+                console.log("Hiding specific loading indicator for calendar " + (index + 1));
                 loadingIndicator.style.display = 'none';
+            } else {
+                console.log("Could not find loading indicator for calendar " + (index + 1));
             }
         });
     }
