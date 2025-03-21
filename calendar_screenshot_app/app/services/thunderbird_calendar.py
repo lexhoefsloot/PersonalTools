@@ -70,6 +70,29 @@ def find_all_calendar_databases():
     print(f"DEBUG: Searching for Thunderbird calendar databases")
     print(f"DEBUG: Current platform: {platform.system()}")
     
+    # Check the specific path mentioned by user first
+    specific_path = os.path.expanduser("~/.thunderbird/qw0vnk3t.default-default/calendar-data/cache.sqlite")
+    if os.path.exists(specific_path):
+        print(f"DEBUG: Found specified Thunderbird calendar database at {specific_path}")
+        file_size = os.path.getsize(specific_path)
+        print(f"DEBUG: Database size: {file_size / (1024*1024):.2f} MB")
+        if file_size > 0:
+            try:
+                # Validate database
+                conn = sqlite3.connect(specific_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = [t[0] for t in cursor.fetchall()]
+                
+                # Check if it has calendar tables
+                if 'cal_calendars' in tables or 'cal_events' in tables:
+                    print(f"DEBUG: Valid calendar database found at specified path: {specific_path}")
+                    conn.close()
+                    return [specific_path]  # Return only this specific path
+                conn.close()
+            except sqlite3.Error as e:
+                print(f"DEBUG: Error checking specified database: {e}")
+    
     # Define database filenames to search for (prioritize cache.sqlite)
     db_files = ['cache.sqlite', 'local.sqlite']
     
@@ -149,31 +172,36 @@ def find_all_calendar_databases():
             except sqlite3.Error as e:
                 print(f"DEBUG: Error checking database {path}: {e}")
     
-    # If we have both cache.sqlite and local.sqlite in the same folder, prioritize the larger one (usually cache.sqlite)
-    if valid_paths:
-        # Group files by their directory
-        by_dir = {}
-        for path in valid_paths:
-            directory = os.path.dirname(path)
-            if directory not in by_dir:
-                by_dir[directory] = []
-            by_dir[directory].append(path)
-        
-        # For each directory, keep only the largest file if there are multiple
-        prioritized_paths = []
-        for directory, files in by_dir.items():
-            if len(files) > 1:
-                # Sort by file size (descending)
-                files.sort(key=lambda f: os.path.getsize(f), reverse=True)
-                largest_file = files[0]
-                print(f"DEBUG: Multiple databases found in {directory}, prioritizing {os.path.basename(largest_file)} (Size: {os.path.getsize(largest_file) / (1024*1024):.2f} MB)")
-                prioritized_paths.append(largest_file)
+    # If we have both cache.sqlite and local.sqlite in the same folder, prioritize cache.sqlite
+    prioritized_paths = []
+    by_dir = group_by_directory(valid_paths)
+    for directory, files in by_dir.items():
+        if len(files) > 1:
+            # Prioritize cache.sqlite over local.sqlite
+            cache_files = [f for f in files if 'cache.sqlite' in f]
+            if cache_files:
+                largest_cache = max(cache_files, key=os.path.getsize)
+                print(f"DEBUG: Multiple databases found in {directory}, prioritizing cache.sqlite: {largest_cache}")
+                prioritized_paths.append(largest_cache)
             else:
-                prioritized_paths.extend(files)
-        
-        return prioritized_paths
+                # If no cache.sqlite, use the largest file
+                largest_file = max(files, key=os.path.getsize)
+                print(f"DEBUG: Multiple databases found in {directory}, prioritizing largest: {largest_file}")
+                prioritized_paths.append(largest_file)
+        else:
+            prioritized_paths.extend(files)
     
-    return valid_paths
+    return prioritized_paths
+
+def group_by_directory(paths):
+    """Group files by their directory"""
+    by_dir = {}
+    for path in paths:
+        directory = os.path.dirname(path)
+        if directory not in by_dir:
+            by_dir[directory] = []
+        by_dir[directory].append(path)
+    return by_dir
 
 def get_thunderbird_calendars():
     """
@@ -194,12 +222,12 @@ def get_thunderbird_calendars():
     # For each database, fetch calendars
     for db_path in calendar_databases:
         print(f"DEBUG: Getting calendars from database: {db_path}")
-        
-        try:
+    
+    try:
             # Connect to database
             conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
+        cursor = conn.cursor()
+        
             # Determine if this is cache.sqlite or local.sqlite format
             is_cache_db = 'cache' in os.path.basename(db_path).lower()
             print(f"DEBUG: Database type: {'cache.sqlite' if is_cache_db else 'local.sqlite'}")
@@ -295,7 +323,7 @@ def get_thunderbird_calendars():
                         print(f"DEBUG: Found calendar IDs with name property: {cal_ids}")
                     
                     # For each calendar ID, get its name and color
-                    for cal_id in cal_ids:
+            for cal_id in cal_ids:
                         # Get calendar name
                         cursor.execute("""
                             SELECT value FROM cal_properties 
@@ -347,12 +375,12 @@ def get_thunderbird_calendars():
                 for calendar in result:
                     cal_id, name, color = calendar
                     # Add calendar to results with prefix to identify source
-                    calendars.append({
+                calendars.append({
                         'id': f"thunderbird:{cal_id}",
                         'name': name,
                         'color': color,
-                        'provider': 'thunderbird'
-                    })
+                    'provider': 'thunderbird'
+                })
                     print(f"DEBUG: Found calendar with ID: thunderbird:{cal_id}, Name: {name}")
             
             # If still no calendars, try to find unique cal_id values in events table
@@ -388,12 +416,12 @@ def get_thunderbird_calendars():
                         cal_name = f"Calendar {cal_id} ({event_count} events, latest: {sample_title})"
                         
                         # Add calendar to the list
-                        calendars.append({
-                            'id': f"thunderbird:{cal_id}",
+            calendars.append({
+                'id': f"thunderbird:{cal_id}",
                             'name': cal_name,
                             'color': "#3366CC",  # Default color
-                            'provider': 'thunderbird'
-                        })
+                'provider': 'thunderbird'
+            })
                         print(f"DEBUG: Added calendar from events: ID={cal_id}, Name={cal_name}")
                 else:
                     print(f"DEBUG: No calendar IDs found in events table")
@@ -410,8 +438,8 @@ def get_thunderbird_calendars():
                         print(f"DEBUG: Sample event {i+1}: cal_id={cal_id}, title='{title}', start={date_str}")
                 except Exception as e:
                     print(f"DEBUG: Error analyzing sample events: {e}")
-            
-            conn.close()
+        
+        conn.close()
             
         except Exception as e:
             print(f"DEBUG: Error getting calendars from Thunderbird database: {e}")
@@ -444,8 +472,8 @@ def get_thunderbird_events(calendars, start_date, end_date):
         try:
             # Connect to database
             conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
+        cursor = conn.cursor()
+        
             # Extract calendar IDs from the requested calendars
             calendar_ids = []
             for calendar in calendars:
@@ -551,11 +579,11 @@ def get_thunderbird_events(calendars, start_date, end_date):
                     event_data = {
                         'id': f"thunderbird:{event_id}",
                         'calendar_id': f"thunderbird:{cal_id}",
-                        'title': title,
-                        'start': start_dt,
-                        'end': end_dt,
-                        'provider': 'thunderbird'
-                    }
+                'title': title,
+                'start': start_dt,
+                'end': end_dt,
+                'provider': 'thunderbird'
+            }
                     
                     # Add location if available
                     if location:
