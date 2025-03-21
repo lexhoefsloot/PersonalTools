@@ -303,8 +303,11 @@
                             // Update debug information
                             updateCalendarDebugInfo(data);
                             
+                            // The data is now an array of events directly, not nested inside an 'events' property
+                            const events = Array.isArray(data) ? data : [];
+                            
                             // Check if there are any events
-                            if (!data.events || data.events.length === 0) {
+                            if (events.length === 0) {
                                 if (typeof window.addDebugEntry === 'function') {
                                     window.addDebugEntry('No calendar events found in the response', 'warning');
                                 }
@@ -334,7 +337,7 @@
                             }
                             
                             // Map events to FullCalendar format with different colors per calendar
-                            const mappedEvents = data.events.map(event => {
+                            const mappedEvents = events.map(event => {
                                 // Get provider and determine color
                                 const provider = event.provider || 'apple'; // Default to apple if not specified
                                 
@@ -405,7 +408,8 @@
                     debugPanel.style.display = 'block';
                     
                     // Load selected calendars info
-                    fetch('{{ url_for('calendar.debug_calendars') }}')
+                    const debugCalendarsUrl = "{{ url_for('calendar.debug_calendars') }}";
+                    fetch(debugCalendarsUrl)
                         .then(response => response.json())
                         .then(data => {
                             document.getElementById('selected-calendars-debug').textContent = 
@@ -422,6 +426,7 @@
                 } else {
                     debugPanel.style.display = 'none';
                 }
+            });
         }
     });
     
@@ -435,7 +440,8 @@
             document.getElementById('calendar-debug-info').style.display = 'block';
             
             // Load selected calendars via API
-            fetch('{{ url_for('calendar.list_calendars') }}')
+            const listCalendarsUrl = "{{ url_for('calendar.list_calendars') }}";
+            fetch(listCalendarsUrl)
                 .then(response => response.text())
                 .then(html => {
                     // Extract session data from HTML (simpler than making a new API endpoint)

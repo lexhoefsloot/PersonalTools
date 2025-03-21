@@ -8,7 +8,7 @@ from app.utils.date_utils import parse_date_range
 import json
 import platform
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import glob
 
@@ -303,6 +303,16 @@ def get_events():
             print(f"ERROR: {error_msg}")
             return jsonify({'error': error_msg}), 400
     
+    # Ensure the datetimes have timezone info for proper comparison
+    if start_time.tzinfo is None:
+        print(f"DEBUG: Adding timezone info to start_time")
+        start_time = start_time.replace(tzinfo=timezone.utc)
+    if end_time.tzinfo is None:
+        print(f"DEBUG: Adding timezone info to end_time")
+        end_time = end_time.replace(tzinfo=timezone.utc)
+    
+    print(f"DEBUG: Final date range with timezone: {start_time} to {end_time}")
+    
     selected_calendars = session.get('selected_calendars', [])
     print(f"DEBUG: Selected calendars from session: {selected_calendars}")
     all_events = []
@@ -328,10 +338,11 @@ def get_events():
         # Check for Thunderbird Calendar
         try:
             thunderbird_calendars = get_thunderbird_calendars()
-            for cal in thunderbird_calendars:
-                cal['provider'] = 'thunderbird'
-                all_calendars.append(cal)
-            print(f"DEBUG: Found {len(thunderbird_calendars)} Thunderbird calendars")
+            if thunderbird_calendars:
+                print(f"DEBUG: Found {len(thunderbird_calendars)} Thunderbird calendars")
+                all_calendars.extend(thunderbird_calendars)
+            else:
+                print(f"DEBUG: No Thunderbird calendars found")
         except Exception as e:
             logging.error(f"Error getting Thunderbird calendars: {str(e)}")
             print(f"DEBUG: Error getting Thunderbird calendars: {str(e)}")
@@ -360,64 +371,140 @@ def get_events():
                 logging.error(f"Error getting Microsoft calendars: {str(e)}")
                 print(f"DEBUG: Error getting Microsoft calendars: {str(e)}")
         
-        # If we found any calendars, use all of them
-        if all_calendars:
-            selected_calendars = [cal['id'] for cal in all_calendars]
-            print(f"DEBUG: Auto-selected {len(selected_calendars)} calendars: {selected_calendars}")
-        else:
-            print("DEBUG: No calendars found to auto-select")
+        selected_calendars = all_calendars
+        print(f"DEBUG: Using all available calendars: {len(selected_calendars)} total")
     
-    # Print what we're about to query
-    print(f"DEBUG: Will query {len(selected_calendars)} calendars: {selected_calendars}")
-    
-    # Collect events from Apple Calendar if on macOS
-    if platform.system() == 'Darwin':
+    # Get events for each calendar based on provider
+    for calendar in selected_calendars:
+        if isinstance(calendar, str):
+            # Convert string calendar ID to dict if needed
+            if calendar.startswith('thunderbird:'):
+                provider = 'thunderbird'
+                cal_id = calendar
+            elif calendar.startswith('google:'):
+                provider = 'google'
+                cal_id = calendar.replace('google:', '')
+            elif calendar.startswith('microsoft:'):
+                provider = 'microsoft'
+                cal_id = calendar.replace('microsoft:', '')
+            elif calendar.startswith('apple:'):
+                provider = 'apple'
+                cal_id = calendar.replace('apple:', '')
+            else:
+                # Assume Thunderbird if no prefix
+                provider = 'thunderbird'
+                cal_id = calendar
+            
+            calendar = {'id': cal_id, 'provider': provider}
+        
+        provider = calendar.get('provider')
+        cal_id = calendar.get('id')
+        
+        print(f"DEBUG: Getting events for calendar: {cal_id} (Provider: {provider})")
+        
         try:
-            apple_calendars = [cal for cal in get_apple_calendars() if cal['id'] in selected_calendars]
-            if apple_calendars:
-                apple_events = get_apple_events(apple_calendars, start_time, end_time)
-                for event in apple_events:
-                    event['provider'] = 'apple'
-                all_events.extend(apple_events)
+            if provider == 'google' and 'google_token' in session:
+                events = get_google_events(session['google_token'], cal_id, start_time, end_time)
+                all_events.extend(events)
+                print(f"DEBUG: Added {len(events)} Google events")
+            
+            elif provider == 'microsoft' and 'microsoft_token' in session:
+                events = get_microsoft_events(session['microsoft_token'], cal_id, start_time, end_time)
+                all_events.extend(events)
+                print(f"DEBUG: Added {len(events)} Microsoft events")
+            
+            elif provider == 'apple' and platform.system() == 'Darwin':
+                if not cal_id.startswith('apple:'):
+                    cal_id = f"apple:{cal_id}"
+                events = get_apple_events([cal_id], start_time, end_time)
+                all_events.extend(events)
+                print(f"DEBUG: Added {len(events)} Apple events")
+            
+            elif provider == 'thunderbird':
+                if not cal_id.startswith('thunderbird:'):
+                    cal_id = f"thunderbird:{cal_id}"
+                print(f"DEBUG: Fetching Thunderbird events for {cal_id} from {start_time} to {end_time}")
+                events = get_thunderbird_events([cal_id], start_time, end_time)
+                all_events.extend(events)
+                print(f"DEBUG: Added {len(events)} Thunderbird events from calendar {cal_id}")
+            
+            else:
+                print(f"DEBUG: Skipping calendar with unknown/unsupported provider: {provider}")
+        
         except Exception as e:
-            logging.error(f"Error getting Apple events: {str(e)}")
+            error_msg = f"Error getting events for calendar {cal_id} (provider: {provider}): {str(e)}"
+            logging.error(error_msg)
+            print(f"DEBUG: {error_msg}")
+            import traceback
+            print(f"DEBUG: {traceback.format_exc()}")
     
-    # Collect events from Thunderbird Calendar if available
-    try:
-        thunderbird_calendars = [cal for cal in get_thunderbird_calendars() if cal['id'] in selected_calendars]
-        if thunderbird_calendars:
-            thunderbird_events = get_thunderbird_events(thunderbird_calendars, start_time, end_time)
-            for event in thunderbird_events:
-                event['provider'] = 'thunderbird'
-            all_events.extend(thunderbird_events)
-    except Exception as e:
-        logging.error(f"Error getting Thunderbird events: {str(e)}")
-    
-    # Collect events from Google Calendar if authenticated
-    if 'google_token' in session:
+    # Convert events to the format expected by FullCalendar
+    formatted_events = []
+    for event in all_events:
         try:
-            google_calendars = [cal for cal in get_google_calendars() if cal['id'] in selected_calendars]
-            if google_calendars:
-                google_events = get_google_events(google_calendars, start_time, end_time)
-                for event in google_events:
-                    event['provider'] = 'google'
-                all_events.extend(google_events)
+            # Ensure start and end times are datetime objects with timezone info
+            start_time = event.get('start')
+            end_time = event.get('end')
+            
+            if not isinstance(start_time, datetime):
+                print(f"DEBUG: Invalid start time format for event {event.get('id')}: {start_time}")
+                continue
+            
+            if not isinstance(end_time, datetime):
+                print(f"DEBUG: Invalid end time format for event {event.get('id')}: {end_time}")
+                continue
+            
+            # Ensure timezone info exists
+            if start_time.tzinfo is None:
+                start_time = start_time.replace(tzinfo=timezone.utc)
+            if end_time.tzinfo is None:
+                end_time = end_time.replace(tzinfo=timezone.utc)
+            
+            # Format the event
+            formatted_event = {
+                'id': event.get('id'),
+                'title': event.get('title', 'Untitled Event'),
+                'start': start_time.isoformat(),
+                'end': end_time.isoformat(),
+                'allDay': event.get('all_day', False),
+            }
+            
+            # Add location if available
+            if 'location' in event and event['location']:
+                formatted_event['location'] = event['location']
+            
+            # Add color if available
+            if 'color' in event and event['color']:
+                formatted_event['color'] = event['color']
+            else:
+                # Set color based on calendar ID
+                calendar_id = event.get('calendar_id')
+                if calendar_id:
+                    for cal in selected_calendars:
+                        cal_id = cal.get('id') if isinstance(cal, dict) else cal
+                        if cal_id == calendar_id:
+                            formatted_event['color'] = cal.get('color', '#3366CC') if isinstance(cal, dict) else '#3366CC'
+                            break
+            
+            # Add provider to event
+            formatted_event['provider'] = event.get('provider', 'unknown')
+            
+            # Add calendar_id to event
+            formatted_event['calendar_id'] = event.get('calendar_id', '')
+            
+            formatted_events.append(formatted_event)
         except Exception as e:
-            logging.error(f"Error getting Google events: {str(e)}")
+            print(f"DEBUG: Error formatting event: {str(e)}")
+            print(f"DEBUG: Problem event: {event}")
     
-    # Collect events from Microsoft Calendar if authenticated
-    if 'microsoft_token' in session:
-        try:
-            microsoft_calendars = [cal for cal in get_microsoft_calendars() if cal['id'] in selected_calendars]
-            if microsoft_calendars:
-                microsoft_events = get_microsoft_events(microsoft_calendars, start_time, end_time)
-                for event in microsoft_events:
-                    event['provider'] = 'microsoft'
-                all_events.extend(microsoft_events)
-        except Exception as e:
-            logging.error(f"Error getting Microsoft events: {str(e)}")
+    print(f"DEBUG: Returning {len(formatted_events)} events in total")
     
-    return jsonify({'events': all_events})
+    # Sample the first few events for debugging
+    if formatted_events:
+        for i, event in enumerate(formatted_events[:3]):
+            print(f"DEBUG: Sample event {i+1}: {event['title']} - {event['start']} to {event['end']}")
+    
+    return jsonify(formatted_events)
 
 @bp.route('/availability')
 def check_availability():
