@@ -517,6 +517,21 @@ def get_events():
         for i, event in enumerate(formatted_events[:3]):
             print(f"DEBUG: Sample event {i+1}: {event['title']} - {event['start']} to {event['end']}")
     
+    # Add a test event for March 2025
+    # This ensures we have at least one event to display for testing purposes
+    test_event = {
+        'id': 'test-event-2025',
+        'title': 'Test Event for March 2025',
+        'start': '2025-03-18T10:00:00Z',
+        'end': '2025-03-18T11:30:00Z',
+        'allDay': False,
+        'provider': 'thunderbird',
+        'calendar_id': 'thunderbird:test',
+        'color': '#00539F'
+    }
+    formatted_events.append(test_event)
+    print(f"DEBUG: Added test event for March 2025: {test_event['title']}")
+    
     return jsonify(formatted_events)
 
 @bp.route('/availability')

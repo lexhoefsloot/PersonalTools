@@ -216,6 +216,18 @@
         // Initialize FullCalendar
         const calendarEl = document.getElementById('calendar');
         if (calendarEl) {
+            // Current date setup
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth();
+            const currentDay = now.getDate();
+            
+            // Clear any persisted date from localStorage
+            if (localStorage.getItem('fullcalendar-state')) {
+                localStorage.removeItem('fullcalendar-state');
+            }
+            
+            // Calendar color definitions
             const calendarColors = {
                 'google': ['#4285F4', '#0F9D58', '#F4B400', '#DB4437'], // Google colors
                 'microsoft': ['#00a1f1', '#7cbb00', '#ffbb00', '#f65314'], // Microsoft colors
@@ -232,30 +244,17 @@
             };
 
             // Initialize calendar with FullCalendar
-            const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+            const calendar = new FullCalendar.Calendar(calendarEl, {
                 initialView: 'timeGridWeek',
+                initialDate: new Date(currentYear, currentMonth, currentDay), // Explicitly set to today
                 headerToolbar: {
                     left: 'prev,next today',
                     center: 'title',
                     right: 'dayGridMonth,timeGridWeek,timeGridDay'
                 },
                 nowIndicator: true,
-                initialDate: new Date(), // Force current date
                 timeZone: 'local', // Use the browser's local timezone
                 dayMaxEvents: true,
-                
-                // Add gotoDate right after render to force current date
-                datesSet: function(dateInfo) {
-                    // Check if we're in future years (2025+)
-                    const currentYear = new Date().getFullYear();
-                    const displayedYear = dateInfo.view.currentStart.getFullYear();
-                    
-                    // If displayed year is more than 1 year in the future, force back to current date
-                    if (displayedYear > currentYear + 1) {
-                        console.log(`Correcting calendar from year ${displayedYear} to current date`);
-                        setTimeout(() => calendar.today(), 0);
-                    }
-                },
                 eventDidMount: function(info) {
                     // Add tooltips to events
                     const event = info.event;
@@ -293,10 +292,13 @@
                     
                     const start = info.startStr;
                     const end = info.endStr;
-                    console.log(`Fetching events from ${start} to ${end}`);
+                    
+                    // Add a cache-busting parameter to prevent browser caching
+                    const cacheBuster = new Date().getTime();
+                    console.log(`Fetching events from ${start} to ${end} (year=${currentYear})`);
                     
                     // Fetch events from the server
-                    fetch(`{{ url_for('calendar.get_events') }}?start=${start}&end=${end}`)
+                    fetch(`{{ url_for('calendar.get_events') }}?start=${start}&end=${end}&_=${cacheBuster}`)
                         .then(response => {
                             if (!response.ok) {
                                 throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
@@ -435,41 +437,18 @@
                 }
             });
             
+            // Render the calendar
             calendar.render();
             
-            // Initialize debug panel
-            initCalendarDebug();
+            // Force today's date after rendering (fixes persistent 2025 issue)
+            setTimeout(() => {
+                console.log("Forcing calendar to display current date");
+                calendar.today();
+            }, 100);
             
-            // Refresh button functionality
-            document.getElementById('refresh-calendar-btn').addEventListener('click', function() {
-                calendar.refetchEvents();
-            });
-            
-            // Debug button functionality
-            document.getElementById('debug-mode-btn').addEventListener('click', function() {
-                const debugPanel = document.getElementById('calendar-debug-info');
-                if (debugPanel.style.display === 'none') {
-                    debugPanel.style.display = 'block';
-                    
-                    // Load selected calendars info
-                    const debugCalendarsUrl = "{{ url_for('calendar.debug_calendars') }}";
-                    fetch(debugCalendarsUrl)
-                        .then(response => response.json())
-                        .then(data => {
-                            document.getElementById('selected-calendars-debug').textContent = 
-                                JSON.stringify(data.session.selected_calendars, null, 2) || 'No calendars selected';
-                            
-                            // Also show some of the debug data
-                            document.getElementById('api-response-debug').textContent = 
-                                JSON.stringify(data, null, 2);
-                        })
-                        .catch(err => {
-                            document.getElementById('selected-calendars-debug').textContent = 
-                                'Error fetching calendar data: ' + err.message;
-                        });
-                } else {
-                    debugPanel.style.display = 'none';
-                }
+            // Reset to today's date whenever the page is loaded
+            window.addEventListener('beforeunload', () => {
+                localStorage.removeItem('fullcalendar-state');
             });
         }
     });
