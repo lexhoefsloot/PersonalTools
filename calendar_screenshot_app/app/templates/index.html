@@ -231,22 +231,16 @@
                 'thunderbird': 0
             };
 
-            // Calendar instance
-            const calendar = new FullCalendar.Calendar(calendarEl, {
+            // Initialize calendar with FullCalendar
+            const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
                 initialView: 'timeGridWeek',
-                height: '100%',
                 headerToolbar: {
                     left: 'prev,next today',
                     center: 'title',
-                    right: 'dayGridMonth,timeGridWeek'
+                    right: 'dayGridMonth,timeGridWeek,timeGridDay'
                 },
                 nowIndicator: true,
-                allDaySlot: true,
-                slotMinTime: '06:00:00',
-                slotMaxTime: '22:00:00',
-                navLinks: true,
-                weekNumbers: false,
-                editable: false,
+                initialDate: new Date(), // Ensure we start with the current date
                 timeZone: 'local', // Use the browser's local timezone
                 dayMaxEvents: true,
                 eventDidMount: function(info) {
@@ -284,8 +278,12 @@
                     document.getElementById('calendar-loading').style.display = 'block';
                     document.getElementById('calendar-error').style.display = 'none';
                     
+                    const start = info.startStr;
+                    const end = info.endStr;
+                    console.log(`Fetching events from ${start} to ${end}`);
+                    
                     // Fetch events from the server
-                    fetch(`{{ url_for('calendar.get_events') }}?start=${info.startStr}&end=${info.endStr}`)
+                    fetch(`{{ url_for('calendar.get_events') }}?start=${start}&end=${end}`)
                         .then(response => {
                             if (!response.ok) {
                                 throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
@@ -298,6 +296,8 @@
                             
                             // Log the raw data for debugging
                             console.log('Raw Calendar API response:', data);
+                            console.log('Response type:', typeof data);
+                            console.log('Is array:', Array.isArray(data));
                             
                             if (typeof window.addDebugEntry === 'function') {
                                 window.addDebugEntry(`Calendar API response: ${JSON.stringify(data).substring(0, 200)}...`, 'info');
