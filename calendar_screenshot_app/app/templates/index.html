@@ -247,6 +247,7 @@
                 navLinks: true,
                 weekNumbers: false,
                 editable: false,
+                timeZone: 'local', // Use the browser's local timezone
                 dayMaxEvents: true,
                 eventDidMount: function(info) {
                     // Add tooltips to events
@@ -359,11 +360,13 @@
                                 // Get the color for this event
                                 const backgroundColor = calendarColors[provider][colorIndex];
                                 
+                                console.log(`Event: ${event.title}, Start: ${event.start}, End: ${event.end}`);
+                                
                                 return {
                                     id: event.id || Math.random().toString(36).substring(2),
                                     title: event.title || 'Untitled Event',
-                                    start: event.start,
-                                    end: event.end,
+                                    start: event.start, // The backend provides ISO format strings
+                                    end: event.end,     // The backend provides ISO format strings
                                     backgroundColor: backgroundColor,
                                     borderColor: backgroundColor,
                                     textColor: '#FFFFFF',
