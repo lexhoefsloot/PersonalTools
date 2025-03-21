@@ -240,7 +240,9 @@
                     right: 'dayGridMonth,timeGridWeek,timeGridDay'
                 },
                 nowIndicator: true,
-                initialDate: new Date(), // Ensure we start with the current date
+                initialDate: new Date(), // Force current date
+                defaultDate: new Date(), // Also set default date to now
+                now: new Date(), // Set "now" to current date
                 timeZone: 'local', // Use the browser's local timezone
                 dayMaxEvents: true,
                 eventDidMount: function(info) {
