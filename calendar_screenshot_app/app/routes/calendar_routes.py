@@ -739,16 +739,24 @@ def get_thunderbird_events(calendar_ids, start_date, end_date):
     # Extract calendar IDs without the 'thunderbird:' prefix
     requested_cal_ids = []
     for cal_id in calendar_ids:
-        if cal_id.startswith('thunderbird:'):
-            # Fix: properly remove the 'thunderbird:' prefix without leaving an extra colon
-            clean_id = cal_id[11:]  # Remove exactly 'thunderbird:' (11 characters)
-            requested_cal_ids.append(clean_id)
+        # Handle different formats of calendar IDs
+        if isinstance(cal_id, dict) and 'id' in cal_id:
+            raw_id = cal_id['id']
         else:
-            # If it doesn't have the prefix, make sure it doesn't start with a colon
-            if cal_id.startswith(':'):
-                requested_cal_ids.append(cal_id[1:])
-            else:
-                requested_cal_ids.append(cal_id)
+            raw_id = cal_id
+            
+        # Remove the thunderbird: prefix if present
+        if isinstance(raw_id, str) and raw_id.startswith('thunderbird:'):
+            # Remove exactly 'thunderbird:' (11 characters)
+            clean_id = raw_id[11:]
+        else:
+            clean_id = raw_id
+            
+        # Remove any leading colons that might be present
+        if isinstance(clean_id, str) and clean_id.startswith(':'):
+            clean_id = clean_id[1:]
+            
+        requested_cal_ids.append(clean_id)
     
     print(f"DEBUG: Requested calendar IDs (without prefix): {requested_cal_ids}")
     
@@ -811,18 +819,21 @@ def get_thunderbird_events(calendar_ids, start_date, end_date):
                             SELECT id, cal_id, title, {start_column}, {end_column}, flags, location
                             FROM cal_events 
                             WHERE cal_id = ? 
-                            AND {start_column} <= ? 
-                            AND {end_column} >= ?
+                            AND {start_column} < ? 
+                            AND {end_column} > ?
                         """
                     else:
                         sql = f"""
                             SELECT id, cal_id, title, {start_column}, {end_column}, flags
                             FROM cal_events 
                             WHERE cal_id = ? 
-                            AND {start_column} <= ? 
-                            AND {end_column} >= ?
+                            AND {start_column} < ? 
+                            AND {end_column} > ?
                         """
                     params = [requested_cal_ids[0], end_timestamp, start_timestamp]
+                    
+                    # Also try a more lenient query if the exact ID doesn't work
+                    print(f"DEBUG: First trying with exact cal_id match: {requested_cal_ids[0]}")
                 else:
                     # Multiple calendars query with placeholders
                     placeholders = ','.join(['?'] * len(requested_cal_ids))
@@ -831,16 +842,16 @@ def get_thunderbird_events(calendar_ids, start_date, end_date):
                             SELECT id, cal_id, title, {start_column}, {end_column}, flags, location
                             FROM cal_events 
                             WHERE cal_id IN ({placeholders}) 
-                            AND {start_column} <= ? 
-                            AND {end_column} >= ?
+                            AND {start_column} < ? 
+                            AND {end_column} > ?
                         """
                     else:
                         sql = f"""
                             SELECT id, cal_id, title, {start_column}, {end_column}, flags
                             FROM cal_events 
                             WHERE cal_id IN ({placeholders}) 
-                            AND {start_column} <= ? 
-                            AND {end_column} >= ?
+                            AND {start_column} < ? 
+                            AND {end_column} > ?
                         """
                     params = requested_cal_ids + [end_timestamp, start_timestamp]
             else:
@@ -849,15 +860,15 @@ def get_thunderbird_events(calendar_ids, start_date, end_date):
                     sql = f"""
                         SELECT id, cal_id, title, {start_column}, {end_column}, flags, location
                         FROM cal_events 
-                        WHERE {start_column} <= ? 
-                        AND {end_column} >= ?
+                        WHERE {start_column} < ? 
+                        AND {end_column} > ?
                     """
                 else:
                     sql = f"""
                         SELECT id, cal_id, title, {start_column}, {end_column}, flags
                         FROM cal_events 
-                        WHERE {start_column} <= ? 
-                        AND {end_column} >= ?
+                        WHERE {start_column} < ? 
+                        AND {end_column} > ?
                     """
                 params = [end_timestamp, start_timestamp]
             
@@ -868,6 +879,41 @@ def get_thunderbird_events(calendar_ids, start_date, end_date):
             events = cursor.fetchall()
             
             print(f"DEBUG: Found {len(events)} events in database {db_path}")
+            
+            # If no events were found and we're querying by calendar ID, try a more generic query
+            if len(events) == 0 and requested_cal_ids:
+                print(f"DEBUG: No events found with specific cal_id. Attempting fallback query to get ALL events in date range")
+                # Get all events in the date range regardless of cal_id
+                if has_location:
+                    fallback_sql = f"""
+                        SELECT id, cal_id, title, {start_column}, {end_column}, flags, location
+                        FROM cal_events 
+                        WHERE {start_column} < ? 
+                        AND {end_column} > ?
+                        LIMIT 100
+                    """
+                else:
+                    fallback_sql = f"""
+                        SELECT id, cal_id, title, {start_column}, {end_column}, flags
+                        FROM cal_events 
+                        WHERE {start_column} < ? 
+                        AND {end_column} > ?
+                        LIMIT 100
+                    """
+                fallback_params = [end_timestamp, start_timestamp]
+                
+                print(f"DEBUG: Executing fallback SQL: {fallback_sql}")
+                print(f"DEBUG: With params: {fallback_params}")
+                
+                cursor.execute(fallback_sql, fallback_params)
+                events = cursor.fetchall()
+                print(f"DEBUG: Fallback query found {len(events)} events")
+                
+                # Print some sample events to help diagnose
+                if events:
+                    print(f"DEBUG: Sample events from fallback query:")
+                    for i, event in enumerate(events[:5]):
+                        print(f"DEBUG: Event {i+1}: cal_id={event[1]}, id={event[0]}, title={event[2]}")
             
             # Process each event
             for event in events:
