@@ -204,11 +204,55 @@ def get_thunderbird_calendars():
             is_cache_db = 'cache' in os.path.basename(db_path).lower()
             print(f"DEBUG: Database type: {'cache.sqlite' if is_cache_db else 'local.sqlite'}")
             
-            # Check if the database has the cal_calendars table
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cal_calendars'")
-            has_calendars_table = cursor.fetchone() is not None
+            # Check available tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [t[0] for t in cursor.fetchall()]
+            print(f"DEBUG: Available tables: {tables}")
             
-            if has_calendars_table:
+            # First try the cal_properties table to get calendar information
+            # This is where newer Thunderbird versions store calendar metadata
+            if 'cal_properties' in tables:
+                print(f"DEBUG: Trying to extract calendars from cal_properties table")
+                try:
+                    # Get distinct calendar IDs from properties
+                    cursor.execute("""
+                        SELECT DISTINCT cal_id FROM cal_properties 
+                        WHERE key='name' OR key='color'
+                    """)
+                    cal_ids = [row[0] for row in cursor.fetchall()]
+                    print(f"DEBUG: Found potential calendar IDs: {cal_ids}")
+                    
+                    # For each calendar ID, get its name and color
+                    for cal_id in cal_ids:
+                        # Get calendar name
+                        cursor.execute("""
+                            SELECT value FROM cal_properties 
+                            WHERE cal_id = ? AND key = 'name'
+                        """, [cal_id])
+                        name_row = cursor.fetchone()
+                        cal_name = name_row[0] if name_row else f"Calendar {cal_id}"
+                        
+                        # Get calendar color
+                        cursor.execute("""
+                            SELECT value FROM cal_properties 
+                            WHERE cal_id = ? AND key = 'color'
+                        """, [cal_id])
+                        color_row = cursor.fetchone()
+                        cal_color = color_row[0] if color_row else "#3366CC"
+                        
+                        # Add to calendars list
+                        calendars.append({
+                            'id': f"thunderbird:{cal_id}",
+                            'name': cal_name,
+                            'color': cal_color,
+                            'provider': 'thunderbird'
+                        })
+                        print(f"DEBUG: Added calendar: ID={cal_id}, Name={cal_name}, Color={cal_color}")
+                except Exception as e:
+                    print(f"DEBUG: Error extracting calendars from cal_properties: {e}")
+            
+            # If no calendars found yet, try the classic cal_calendars table
+            if not calendars and 'cal_calendars' in tables:
                 print(f"DEBUG: Found cal_calendars table, getting data")
                 
                 # Get the columns in the table to adapt our query
@@ -224,33 +268,60 @@ def get_thunderbird_calendars():
                 
                 cursor.execute(query)
                 result = cursor.fetchall()
-            else:
-                print(f"DEBUG: No cal_calendars table found, trying to extract calendars from events")
                 
-                # Try to extract calendar IDs from events table
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cal_events'")
-                if cursor.fetchone():
-                    cursor.execute("SELECT DISTINCT cal_id FROM cal_events")
-                    result = [(cal_id[0], f"Calendar {cal_id[0]}", "#3366CC") for cal_id in cursor.fetchall()]
-                    print(f"DEBUG: Extracted {len(result)} calendars from events")
+                # Add calendars to the list
+                for calendar in result:
+                    cal_id, name, color = calendar
+                    # Add calendar to results with prefix to identify source
+                    calendars.append({
+                        'id': f"thunderbird:{cal_id}",
+                        'name': name,
+                        'color': color,
+                        'provider': 'thunderbird'
+                    })
+                    print(f"DEBUG: Found calendar with ID: thunderbird:{cal_id}, Name: {name}")
+            
+            # If still no calendars, try to extract unique calendar IDs from events
+            if not calendars and 'cal_events' in tables:
+                print(f"DEBUG: No calendars found yet, trying to extract from cal_events table")
+                
+                # Extract unique calendar IDs from events
+                cursor.execute("SELECT DISTINCT cal_id FROM cal_events")
+                cal_ids = cursor.fetchall()
+                
+                # Check if we found any
+                if cal_ids:
+                    print(f"DEBUG: Found {len(cal_ids)} unique calendar IDs from events")
+                    
+                    # For each calendar ID, create a calendar entry
+                    for cal_id_row in cal_ids:
+                        cal_id = cal_id_row[0]
+                        
+                        # Try to get some additional information about this calendar
+                        # First, get the calendar name from metadata if available
+                        cal_name = f"Calendar {cal_id}"
+                        if 'cal_metadata' in tables:
+                            try:
+                                cursor.execute("""
+                                    SELECT value FROM cal_metadata 
+                                    WHERE item_id = ? AND key = 'name'
+                                """, [cal_id])
+                                name_row = cursor.fetchone()
+                                if name_row:
+                                    cal_name = name_row[0]
+                            except Exception as e:
+                                print(f"DEBUG: Error getting calendar name from metadata: {e}")
+                        
+                        # Add calendar to the list
+                        calendars.append({
+                            'id': f"thunderbird:{cal_id}",
+                            'name': cal_name,
+                            'color': "#3366CC",  # Default color
+                            'provider': 'thunderbird'
+                        })
+                        print(f"DEBUG: Added calendar from events: ID={cal_id}, Name={cal_name}")
                 else:
-                    result = []
-                    print(f"DEBUG: No cal_events table found, cannot extract calendars")
-            
-            # Debug found calendars
-            print(f"DEBUG: Found {len(result)} calendars in database {db_path}")
-            
-            for calendar in result:
-                cal_id, name, color = calendar
-                
-                # Add calendar to results with prefix to identify source
-                calendars.append({
-                    'id': f"thunderbird:{cal_id}",
-                    'name': name,
-                    'color': color,
-                    'provider': 'thunderbird'
-                })
-                print(f"DEBUG: Found calendar with ID: thunderbird:{cal_id}, Name: {name}")
+                    print(f"DEBUG: No calendar IDs found in events table")
             
             conn.close()
             
@@ -277,125 +348,143 @@ def get_thunderbird_events(calendars, start_date, end_date):
         print("DEBUG: No Thunderbird calendar databases found.")
         return events
     
-    # Debug: Inspect database structure
-    for db_path in calendar_databases:
-        debug_thunderbird_database(db_path)
-    
     # For each database, fetch events
     for db_path in calendar_databases:
         print(f"DEBUG: Checking database: {db_path}")
+        db_events = []
         
         try:
             # Connect to database
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            # Use calendar IDs to filter events
+            # Extract calendar IDs from the requested calendars
             calendar_ids = []
             for calendar in calendars:
                 # Extract calendar ID from the combined string
-                cal_id = calendar['id'].replace('thunderbird:', '') if calendar['id'].startswith('thunderbird:') else calendar['id']
+                if isinstance(calendar, dict) and 'id' in calendar:
+                    cal_id = calendar['id'].replace('thunderbird:', '') if calendar['id'].startswith('thunderbird:') else calendar['id']
+                else:
+                    cal_id = calendar.replace('thunderbird:', '') if calendar.startswith('thunderbird:') else calendar
                 calendar_ids.append(cal_id)
             
-            # Convert dates to Unix timestamp for SQLite query
-            start_timestamp = int(start_date.timestamp() * 1000000)  # microseconds
-            end_timestamp = int(end_date.timestamp() * 1000000)    # microseconds
+            print(f"DEBUG: Looking for events from calendar IDs: {calendar_ids}")
             
-            # Format calendar IDs for SQL query
-            cal_id_placeholders = ','.join(['?'] * len(calendar_ids))
+            # Convert dates to Unix timestamp for SQLite query (microseconds)
+            start_timestamp = int(start_date.timestamp() * 1000000)
+            end_timestamp = int(end_date.timestamp() * 1000000)
             
-            # Debug the query parameters
-            print(f"DEBUG: Start timestamp: {start_timestamp}, End timestamp: {end_timestamp}")
-            print(f"DEBUG: Calendar IDs for filtering: {calendar_ids}")
+            # Get available tables in the database
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [t[0] for t in cursor.fetchall()]
+            print(f"DEBUG: Available tables: {tables}")
             
-            # Check if the database has the necessary tables
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cal_events'")
-            has_events_table = cursor.fetchone() is not None
-            
-            if not has_events_table:
-                print(f"DEBUG: Database {db_path} doesn't have a cal_events table")
+            # Check if events table exists
+            if 'cal_events' not in tables:
+                print(f"DEBUG: No cal_events table found in {db_path}")
                 conn.close()
                 continue
             
-            # Check if this is cache.sqlite or local.sqlite format
-            is_cache_db = 'cache' in os.path.basename(db_path).lower()
+            # Get the columns in the events table
+            cursor.execute("PRAGMA table_info(cal_events)")
+            columns = [col[1] for col in cursor.fetchall()]
+            print(f"DEBUG: cal_events columns: {columns}")
             
-            # For different database formats, we might need different queries
-            if is_cache_db:
-                # For cache.sqlite format
-                print(f"DEBUG: Using cache.sqlite format query")
-                
-                # Check for columns
-                cursor.execute("PRAGMA table_info(cal_events)")
-                columns = [col[1] for col in cursor.fetchall()]
-                print(f"DEBUG: Available columns: {columns}")
-                
-                # Adapt query based on available columns
-                if 'start_time' in columns and 'end_time' in columns:
-                    # Some versions use start_time/end_time instead of event_start/event_end
-                    query = f"""
-                    SELECT cal_id, title, start_time, end_time, id
-                    FROM cal_events
-                    WHERE cal_id IN ({cal_id_placeholders})
-                    AND ((start_time >= ? AND start_time <= ?) OR 
-                         (end_time >= ? AND end_time <= ?) OR
-                         (start_time <= ? AND end_time >= ?))
-                    """
-                    cursor.execute(query, calendar_ids + [start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp])
-                else:
-                    # Use standard column names
-                    query = f"""
-                    SELECT cal_id, title, event_start, event_end, id
-                    FROM cal_events
-                    WHERE cal_id IN ({cal_id_placeholders})
-                    AND ((event_start >= ? AND event_start <= ?) OR 
-                         (event_end >= ? AND event_end <= ?) OR
-                         (event_start <= ? AND event_end >= ?))
-                    """
-                    cursor.execute(query, calendar_ids + [start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp])
-            else:
-                # For local.sqlite format (older)
-                print(f"DEBUG: Using local.sqlite format query")
+            # Determine which time columns to use based on the database schema
+            start_time_col = 'event_start'
+            end_time_col = 'event_end'
+            
+            if 'start_time' in columns and 'end_time' in columns:
+                start_time_col = 'start_time'
+                end_time_col = 'end_time'
+            
+            print(f"DEBUG: Using time columns: {start_time_col} and {end_time_col}")
+            
+            # Format calendar IDs for SQL query
+            cal_id_placeholders = ','.join(['?'] * len(calendar_ids)) if calendar_ids else '1'
+            query_params = calendar_ids.copy() if calendar_ids else []
+            
+            # If no specific calendar IDs are provided, get all events
+            if not calendar_ids:
                 query = f"""
-                SELECT cal_id, title, event_start, event_end, id
+                SELECT cal_id, title, {start_time_col}, {end_time_col}, id
+                FROM cal_events
+                WHERE (({start_time_col} >= ? AND {start_time_col} <= ?) OR 
+                      ({end_time_col} >= ? AND {end_time_col} <= ?) OR
+                      ({start_time_col} <= ? AND {end_time_col} >= ?))
+                ORDER BY {start_time_col} ASC
+                """
+                query_params = [start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp]
+            else:
+                query = f"""
+                SELECT cal_id, title, {start_time_col}, {end_time_col}, id
                 FROM cal_events
                 WHERE cal_id IN ({cal_id_placeholders})
-                AND ((event_start >= ? AND event_start <= ?) OR 
-                     (event_end >= ? AND event_end <= ?) OR
-                     (event_start <= ? AND event_end >= ?))
+                AND (({start_time_col} >= ? AND {start_time_col} <= ?) OR 
+                    ({end_time_col} >= ? AND {end_time_col} <= ?) OR
+                    ({start_time_col} <= ? AND {end_time_col} >= ?))
+                ORDER BY {start_time_col} ASC
                 """
-                cursor.execute(query, calendar_ids + [start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp])
+                query_params.extend([start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp])
             
-            # Get results
+            print(f"DEBUG: Running query: {query}")
+            print(f"DEBUG: Query parameters: {query_params}")
+            
+            # Execute the query
+            cursor.execute(query, query_params)
             results = cursor.fetchall()
             print(f"DEBUG: Found {len(results)} events in database {db_path}")
-            
-            # Debug the first few results
-            if results:
-                print(f"DEBUG: Sample event data (first up to 3 events):")
-                for i, event in enumerate(results[:3]):
-                    cal_id, title, event_start, event_end, event_id = event
-                    start_dt = datetime.fromtimestamp(event_start / 1000000)
-                    end_dt = datetime.fromtimestamp(event_end / 1000000)
-                    print(f"DEBUG: Event {i+1}: Calendar: {cal_id}, Title: {title}, Start: {start_dt}, End: {end_dt}")
             
             # Process each event
             for event in results:
                 cal_id, title, event_start, event_end, event_id = event
                 
-                # Convert timestamps to datetime
-                start_dt = datetime.fromtimestamp(event_start / 1000000)
-                end_dt = datetime.fromtimestamp(event_end / 1000000)
-                
-                # Add event to results
-                events.append({
-                    'id': f"thunderbird:{event_id}",
-                    'calendar_id': f"thunderbird:{cal_id}",
-                    'title': title,
-                    'start': start_dt,
-                    'end': end_dt,
-                    'provider': 'thunderbird'
-                })
+                try:
+                    # Convert timestamps to datetime
+                    start_dt = datetime.fromtimestamp(event_start / 1000000, timezone.utc)
+                    end_dt = datetime.fromtimestamp(event_end / 1000000, timezone.utc)
+                    
+                    # Try to get event location if available
+                    location = None
+                    if 'cal_properties' in tables:
+                        try:
+                            # Look up the location property for this event
+                            cursor.execute("""
+                                SELECT value FROM cal_properties 
+                                WHERE item_id = ? AND key = 'LOCATION'
+                            """, [event_id])
+                            loc_row = cursor.fetchone()
+                            if loc_row:
+                                location = loc_row[0]
+                        except Exception as e:
+                            print(f"DEBUG: Error getting event location: {e}")
+                    
+                    # Add event to results
+                    event_data = {
+                        'id': f"thunderbird:{event_id}",
+                        'calendar_id': f"thunderbird:{cal_id}",
+                        'title': title,
+                        'start': start_dt,
+                        'end': end_dt,
+                        'provider': 'thunderbird'
+                    }
+                    
+                    # Add location if available
+                    if location:
+                        event_data['location'] = location
+                    
+                    db_events.append(event_data)
+                except Exception as e:
+                    print(f"DEBUG: Error processing event {event_id}: {e}")
+            
+            # Add a sample of events for debugging
+            if db_events:
+                print(f"DEBUG: Sample event data (first up to 3 events):")
+                for i, event in enumerate(db_events[:3]):
+                    print(f"DEBUG: Event {i+1}: Calendar: {event['calendar_id']}, Title: {event['title']}, Start: {event['start']}, End: {event['end']}")
+            
+            # Add events from this database to the overall result
+            events.extend(db_events)
             
             # Close database connection
             conn.close()

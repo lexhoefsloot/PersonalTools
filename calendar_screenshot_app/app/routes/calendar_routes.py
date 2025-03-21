@@ -261,26 +261,47 @@ def get_events():
         print(f"DEBUG: Using default time range: {start_time} - {end_time}")
     else:
         try:
-            # Fix format issue: replace space before timezone with '+'
-            if ' ' in start_time_str:
+            # Handle various date format issues
+            # 1. Replace space before timezone with '+'
+            if ' ' in start_time_str and '+' not in start_time_str and '-' not in start_time_str.split('T')[1]:
                 start_time_str = start_time_str.replace(' ', '+', 1)
-            if ' ' in end_time_str:
+            if ' ' in end_time_str and '+' not in end_time_str and '-' not in end_time_str.split('T')[1]:
                 end_time_str = end_time_str.replace(' ', '+', 1)
-                
+            
+            # 2. Handle ISO 8601 format with 'Z' for UTC
+            if start_time_str.endswith('Z'):
+                start_time_str = start_time_str.replace('Z', '+00:00')
+            if end_time_str.endswith('Z'):
+                end_time_str = end_time_str.replace('Z', '+00:00')
+            
+            # 3. Add timezone if none specified
+            if 'T' in start_time_str and '+' not in start_time_str and '-' not in start_time_str.split('T')[1]:
+                start_time_str += '+00:00'
+            if 'T' in end_time_str and '+' not in end_time_str and '-' not in end_time_str.split('T')[1]:
+                end_time_str += '+00:00'
+            
+            print(f"DEBUG: Formatted date strings: start={start_time_str}, end={end_time_str}")
+            
             try:
                 start_time = datetime.fromisoformat(start_time_str)
                 end_time = datetime.fromisoformat(end_time_str)
-            except ValueError:
-                # Handle ISO 8601 format from FullCalendar which may include 'Z' for UTC
-                start_time_str = start_time_str.replace('Z', '+00:00')
-                end_time_str = end_time_str.replace('Z', '+00:00')
-                start_time = datetime.fromisoformat(start_time_str)
-                end_time = datetime.fromisoformat(end_time_str)
-            print(f"DEBUG: Parsed time range: {start_time} - {end_time}")
-        except ValueError as e:
-            print(f"ERROR: Could not parse date format. start_time_str={start_time_str}, end_time_str={end_time_str}")
-            print(f"ERROR: {str(e)}")
-            return jsonify({'error': f'Invalid date format: {str(e)}'}), 400
+                print(f"DEBUG: Successfully parsed time range: {start_time} - {end_time}")
+            except ValueError as e:
+                print(f"ERROR: Could not parse dates after formatting: {e}")
+                # Last resort: try parsing with dateutil
+                try:
+                    from dateutil import parser
+                    start_time = parser.parse(start_time_str)
+                    end_time = parser.parse(end_time_str)
+                    print(f"DEBUG: Parsed with dateutil: {start_time} - {end_time}")
+                except Exception as e:
+                    error_msg = f"Invalid date format: {str(e)}. Received: start={start_time_str}, end={end_time_str}"
+                    print(f"ERROR: {error_msg}")
+                    return jsonify({'error': error_msg}), 400
+        except Exception as e:
+            error_msg = f"Error processing dates: {str(e)}. Received: start={start_time_str}, end={end_time_str}"
+            print(f"ERROR: {error_msg}")
+            return jsonify({'error': error_msg}), 400
     
     selected_calendars = session.get('selected_calendars', [])
     print(f"DEBUG: Selected calendars from session: {selected_calendars}")
