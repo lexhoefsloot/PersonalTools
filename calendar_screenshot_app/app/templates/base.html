@@ -169,6 +169,53 @@
             color: #888;
             margin-right: 10px;
         }
+        
+        /* FullCalendar Custom Styles */
+        .fc-toolbar-title {
+            font-size: 1.2rem !important;
+            font-weight: 600 !important;
+        }
+        
+        .fc-header-toolbar {
+            margin-bottom: 0.5rem !important;
+        }
+        
+        .fc-daygrid-day.fc-day-today,
+        .fc-timegrid-col.fc-day-today {
+            background-color: rgba(13, 110, 253, 0.05) !important;
+        }
+        
+        .fc-event {
+            border-radius: 4px !important;
+            border: none !important;
+            font-size: 0.85em !important;
+            padding: 2px 4px !important;
+            cursor: pointer !important;
+        }
+        
+        .fc-event-time {
+            font-weight: 600 !important;
+        }
+        
+        .fc-button-primary {
+            background-color: #0d6efd !important;
+            border-color: #0d6efd !important;
+        }
+        
+        .fc-button-primary:hover {
+            background-color: #0b5ed7 !important;
+            border-color: #0a58ca !important;
+        }
+        
+        .fc-button-primary:disabled {
+            background-color: #0d6efd !important;
+            border-color: #0d6efd !important;
+            opacity: 0.5 !important;
+        }
+        
+        .fc-day-sat, .fc-day-sun {
+            background-color: rgba(0, 0, 0, 0.02) !important;
+        }
     </style>
     {% block head_extra %}{% endblock %}
     {% block styles %}{% endblock %}

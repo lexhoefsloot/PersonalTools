@@ -257,37 +257,113 @@ def get_events():
         start_time = now.replace(hour=8, minute=0, second=0, microsecond=0)
         end_time = now.replace(hour=18, minute=0, second=0, microsecond=0)
     else:
-        start_time = datetime.fromisoformat(start_time_str)
-        end_time = datetime.fromisoformat(end_time_str)
+        try:
+            start_time = datetime.fromisoformat(start_time_str)
+            end_time = datetime.fromisoformat(end_time_str)
+        except ValueError:
+            # Handle ISO 8601 format from FullCalendar which may include 'Z' for UTC
+            start_time_str = start_time_str.replace('Z', '+00:00')
+            end_time_str = end_time_str.replace('Z', '+00:00')
+            start_time = datetime.fromisoformat(start_time_str)
+            end_time = datetime.fromisoformat(end_time_str)
     
     selected_calendars = session.get('selected_calendars', [])
-    if not selected_calendars:
-        return jsonify({'error': 'No calendars selected'}), 400
-    
     all_events = []
+    
+    # If no calendars are selected, attempt to use all available calendars
+    if not selected_calendars:
+        # Try to get all calendars from all providers
+        all_calendars = []
+        
+        # Check for Apple Calendar if on macOS
+        if platform.system() == 'Darwin':
+            try:
+                apple_calendars = get_apple_calendars()
+                for cal in apple_calendars:
+                    cal['provider'] = 'apple'
+                    all_calendars.append(cal)
+            except Exception as e:
+                logging.error(f"Error getting Apple calendars: {str(e)}")
+        
+        # Check for Thunderbird Calendar
+        try:
+            thunderbird_calendars = get_thunderbird_calendars()
+            for cal in thunderbird_calendars:
+                cal['provider'] = 'thunderbird'
+                all_calendars.append(cal)
+        except Exception as e:
+            logging.error(f"Error getting Thunderbird calendars: {str(e)}")
+        
+        # Check for Google Calendar if authenticated
+        if 'google_token' in session:
+            try:
+                google_calendars = get_google_calendars(session['google_token'])
+                for cal in google_calendars:
+                    cal['provider'] = 'google'
+                    all_calendars.append(cal)
+            except Exception as e:
+                logging.error(f"Error getting Google calendars: {str(e)}")
+        
+        # Check for Microsoft Calendar if authenticated
+        if 'microsoft_token' in session:
+            try:
+                microsoft_calendars = get_microsoft_calendars(session['microsoft_token'])
+                for cal in microsoft_calendars:
+                    cal['provider'] = 'microsoft'
+                    all_calendars.append(cal)
+            except Exception as e:
+                logging.error(f"Error getting Microsoft calendars: {str(e)}")
+        
+        # If we found any calendars, use all of them
+        if all_calendars:
+            selected_calendars = [cal['id'] for cal in all_calendars]
     
     # Collect events from Apple Calendar if on macOS
     if platform.system() == 'Darwin':
-        apple_calendars = [cal for cal in get_apple_calendars() if cal['id'] in selected_calendars]
-        if apple_calendars:
-            all_events.extend(get_apple_events(apple_calendars, start_time, end_time))
+        try:
+            apple_calendars = [cal for cal in get_apple_calendars() if cal['id'] in selected_calendars]
+            if apple_calendars:
+                apple_events = get_apple_events(apple_calendars, start_time, end_time)
+                for event in apple_events:
+                    event['provider'] = 'apple'
+                all_events.extend(apple_events)
+        except Exception as e:
+            logging.error(f"Error getting Apple events: {str(e)}")
     
     # Collect events from Thunderbird Calendar if available
-    thunderbird_calendars = [cal for cal in get_thunderbird_calendars() if cal['id'] in selected_calendars]
-    if thunderbird_calendars:
-        all_events.extend(get_thunderbird_events(thunderbird_calendars, start_time, end_time))
+    try:
+        thunderbird_calendars = [cal for cal in get_thunderbird_calendars() if cal['id'] in selected_calendars]
+        if thunderbird_calendars:
+            thunderbird_events = get_thunderbird_events(thunderbird_calendars, start_time, end_time)
+            for event in thunderbird_events:
+                event['provider'] = 'thunderbird'
+            all_events.extend(thunderbird_events)
+    except Exception as e:
+        logging.error(f"Error getting Thunderbird events: {str(e)}")
     
     # Collect events from Google Calendar if authenticated
     if 'google_token' in session:
-        google_calendars = [cal for cal in get_google_calendars() if cal['id'] in selected_calendars]
-        if google_calendars:
-            all_events.extend(get_google_events(google_calendars, start_time, end_time))
+        try:
+            google_calendars = [cal for cal in get_google_calendars() if cal['id'] in selected_calendars]
+            if google_calendars:
+                google_events = get_google_events(google_calendars, start_time, end_time)
+                for event in google_events:
+                    event['provider'] = 'google'
+                all_events.extend(google_events)
+        except Exception as e:
+            logging.error(f"Error getting Google events: {str(e)}")
     
     # Collect events from Microsoft Calendar if authenticated
     if 'microsoft_token' in session:
-        microsoft_calendars = [cal for cal in get_microsoft_calendars() if cal['id'] in selected_calendars]
-        if microsoft_calendars:
-            all_events.extend(get_microsoft_events(microsoft_calendars, start_time, end_time))
+        try:
+            microsoft_calendars = [cal for cal in get_microsoft_calendars() if cal['id'] in selected_calendars]
+            if microsoft_calendars:
+                microsoft_events = get_microsoft_events(microsoft_calendars, start_time, end_time)
+                for event in microsoft_events:
+                    event['provider'] = 'microsoft'
+                all_events.extend(microsoft_events)
+        except Exception as e:
+            logging.error(f"Error getting Microsoft events: {str(e)}")
     
     return jsonify({'events': all_events})
 
