@@ -771,43 +771,73 @@ def get_thunderbird_events(calendar_ids, start_date, end_date):
             is_local_db = 'start_time' in columns
             
             print(f"DEBUG: Database format: {'cache.sqlite' if is_cache_db else 'local.sqlite'}")
+            print(f"DEBUG: Available columns in cal_events: {columns}")
             
             # Check which column names to use for start and end times
             start_column = 'event_start' if is_cache_db else 'start_time'
             end_column = 'event_end' if is_cache_db else 'end_time'
+            
+            # Check if location column exists
+            has_location = 'location' in columns
             
             # Create the base SQL query depending on whether we filter by calendar IDs
             if requested_cal_ids:
                 # Filter by specific calendar IDs
                 if len(requested_cal_ids) == 1:
                     # Single calendar query
-                    sql = f"""
-                        SELECT id, cal_id, title, {start_column}, {end_column}, flags, location
-                        FROM cal_events 
-                        WHERE cal_id = ? 
-                        AND {start_column} <= ? 
-                        AND {end_column} >= ?
-                    """
+                    if has_location:
+                        sql = f"""
+                            SELECT id, cal_id, title, {start_column}, {end_column}, flags, location
+                            FROM cal_events 
+                            WHERE cal_id = ? 
+                            AND {start_column} <= ? 
+                            AND {end_column} >= ?
+                        """
+                    else:
+                        sql = f"""
+                            SELECT id, cal_id, title, {start_column}, {end_column}, flags
+                            FROM cal_events 
+                            WHERE cal_id = ? 
+                            AND {start_column} <= ? 
+                            AND {end_column} >= ?
+                        """
                     params = [requested_cal_ids[0], end_timestamp, start_timestamp]
                 else:
                     # Multiple calendars query with placeholders
                     placeholders = ','.join(['?'] * len(requested_cal_ids))
-                    sql = f"""
-                        SELECT id, cal_id, title, {start_column}, {end_column}, flags, location
-                        FROM cal_events 
-                        WHERE cal_id IN ({placeholders}) 
-                        AND {start_column} <= ? 
-                        AND {end_column} >= ?
-                    """
+                    if has_location:
+                        sql = f"""
+                            SELECT id, cal_id, title, {start_column}, {end_column}, flags, location
+                            FROM cal_events 
+                            WHERE cal_id IN ({placeholders}) 
+                            AND {start_column} <= ? 
+                            AND {end_column} >= ?
+                        """
+                    else:
+                        sql = f"""
+                            SELECT id, cal_id, title, {start_column}, {end_column}, flags
+                            FROM cal_events 
+                            WHERE cal_id IN ({placeholders}) 
+                            AND {start_column} <= ? 
+                            AND {end_column} >= ?
+                        """
                     params = requested_cal_ids + [end_timestamp, start_timestamp]
             else:
                 # Get events from all calendars
-                sql = f"""
-                    SELECT id, cal_id, title, {start_column}, {end_column}, flags, location
-                    FROM cal_events 
-                    WHERE {start_column} <= ? 
-                    AND {end_column} >= ?
-                """
+                if has_location:
+                    sql = f"""
+                        SELECT id, cal_id, title, {start_column}, {end_column}, flags, location
+                        FROM cal_events 
+                        WHERE {start_column} <= ? 
+                        AND {end_column} >= ?
+                    """
+                else:
+                    sql = f"""
+                        SELECT id, cal_id, title, {start_column}, {end_column}, flags
+                        FROM cal_events 
+                        WHERE {start_column} <= ? 
+                        AND {end_column} >= ?
+                    """
                 params = [end_timestamp, start_timestamp]
             
             print(f"DEBUG: Executing SQL: {sql}")
@@ -826,7 +856,7 @@ def get_thunderbird_events(calendar_ids, start_date, end_date):
                 event_start = event[3]
                 event_end = event[4]
                 flags = event[5]
-                location = event[6] if len(event) > 6 else None
+                location = event[6] if has_location and len(event) > 6 else None
                 
                 # Convert microseconds to datetime objects
                 start_dt = microseconds_to_datetime(event_start)
