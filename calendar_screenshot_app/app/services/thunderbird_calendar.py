@@ -94,9 +94,16 @@ def find_all_calendar_databases():
             possible_paths.extend(glob.glob(os.path.join(appdata, f"Thunderbird/Profiles/*/calendar-data/{db_file}")))
             possible_paths.extend(glob.glob(os.path.join(localappdata, f"Thunderbird/Profiles/*/calendar-data/{db_file}")))
     
-    # Debug found paths
-    print(f"DEBUG: Found {len(possible_paths)} potential calendar databases: {possible_paths}")
+    # Debug found paths with file sizes
+    for path in possible_paths:
+        file_size = os.path.getsize(path) if os.path.exists(path) else 0
+        print(f"DEBUG: Found potential calendar database: {path} (Size: {file_size / (1024*1024):.2f} MB)")
     
+    # Sort by size to prioritize the larger file (almost always the active one)
+    possible_paths.sort(key=lambda path: os.path.getsize(path) if os.path.exists(path) else 0, reverse=True)
+    print(f"DEBUG: Sorted databases by size (largest first): {[p for p in possible_paths]}")
+    
+    # Now validate them
     valid_paths = []
     for path in possible_paths:
         if os.path.exists(path) and os.path.getsize(path) > 0:
@@ -105,22 +112,66 @@ def find_all_calendar_databases():
                 conn = sqlite3.connect(path)
                 cursor = conn.cursor()
                 
-                # Check if the database has the cal_calendars table
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cal_calendars'")
-                if cursor.fetchone():
+                # Get tables
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = [t[0] for t in cursor.fetchall()]
+                print(f"DEBUG: Tables in {path}: {tables}")
+                
+                # Check if the database has the necessary tables
+                has_calendars = 'cal_calendars' in tables
+                has_events = 'cal_events' in tables
+                
+                if has_calendars or has_events:
                     valid_paths.append(path)
                     print(f"DEBUG: Valid calendar database found at: {path}")
-                else:
-                    print(f"DEBUG: Database {path} exists but doesn't have cal_calendars table")
                     
-                    # Try to list the available tables for debugging
-                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                    tables = cursor.fetchall()
-                    print(f"DEBUG: Tables in {path}: {[t[0] for t in tables]}")
+                    # Print further details
+                    print(f"DEBUG: Has cal_calendars table: {has_calendars}")
+                    print(f"DEBUG: Has cal_events table: {has_events}")
+                    
+                    if has_events:
+                        try:
+                            # Count events
+                            cursor.execute("SELECT COUNT(*) FROM cal_events")
+                            event_count = cursor.fetchone()[0]
+                            print(f"DEBUG: Database contains {event_count} events")
+                            
+                            # Check calendar IDs
+                            cursor.execute("SELECT DISTINCT cal_id FROM cal_events")
+                            cal_ids = [c[0] for c in cursor.fetchall()]
+                            print(f"DEBUG: Found calendar IDs in events: {cal_ids}")
+                        except sqlite3.Error as e:
+                            print(f"DEBUG: Error querying events: {e}")
+                else:
+                    print(f"DEBUG: Database {path} doesn't have required calendar tables")
                 
                 conn.close()
             except sqlite3.Error as e:
                 print(f"DEBUG: Error checking database {path}: {e}")
+    
+    # If we have both cache.sqlite and local.sqlite in the same folder, prioritize the larger one (usually cache.sqlite)
+    if valid_paths:
+        # Group files by their directory
+        by_dir = {}
+        for path in valid_paths:
+            directory = os.path.dirname(path)
+            if directory not in by_dir:
+                by_dir[directory] = []
+            by_dir[directory].append(path)
+        
+        # For each directory, keep only the largest file if there are multiple
+        prioritized_paths = []
+        for directory, files in by_dir.items():
+            if len(files) > 1:
+                # Sort by file size (descending)
+                files.sort(key=lambda f: os.path.getsize(f), reverse=True)
+                largest_file = files[0]
+                print(f"DEBUG: Multiple databases found in {directory}, prioritizing {os.path.basename(largest_file)} (Size: {os.path.getsize(largest_file) / (1024*1024):.2f} MB)")
+                prioritized_paths.append(largest_file)
+            else:
+                prioritized_paths.extend(files)
+        
+        return prioritized_paths
     
     return valid_paths
 
