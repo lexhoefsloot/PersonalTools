@@ -296,16 +296,24 @@
                             // Hide loading indicator
                             document.getElementById('calendar-status').style.display = 'none';
                             
+                            // Log the raw data for debugging
+                            console.log('Raw Calendar API response:', data);
+                            
                             if (typeof window.addDebugEntry === 'function') {
                                 window.addDebugEntry(`Calendar API response: ${JSON.stringify(data).substring(0, 200)}...`, 'info');
                             }
-                            console.log('Calendar API response:', data);
                             
                             // Update debug information
                             updateCalendarDebugInfo(data);
                             
                             // The data is now an array of events directly, not nested inside an 'events' property
                             const events = Array.isArray(data) ? data : [];
+                            
+                            // Add detailed debugging
+                            console.log(`Received ${events.length} events from the server`);
+                            events.forEach((event, i) => {
+                                console.log(`Event ${i+1}: ${event.title}, Start: ${event.start}, End: ${event.end}`);
+                            });
                             
                             // Check if there are any events
                             if (events.length === 0) {
@@ -314,7 +322,7 @@
                                 }
                                 console.warn('No calendar events found in the response');
                                 
-                                // Show a message on the calendar itself (optional, can be removed)
+                                // Show a message on the calendar itself
                                 const calendarEl = document.getElementById('calendar');
                                 if (calendarEl.querySelector('.fc-view-harness')) {
                                     const noEventsMsg = document.createElement('div');
@@ -360,13 +368,10 @@
                                 // Get the color for this event
                                 const backgroundColor = calendarColors[provider][colorIndex];
                                 
-                                console.log(`Event: ${event.title}, Start: ${event.start}, End: ${event.end}`);
-                                
-                                return {
+                                // Create a valid event object for FullCalendar
+                                const fcEvent = {
                                     id: event.id || Math.random().toString(36).substring(2),
                                     title: event.title || 'Untitled Event',
-                                    start: event.start, // The backend provides ISO format strings
-                                    end: event.end,     // The backend provides ISO format strings
                                     backgroundColor: backgroundColor,
                                     borderColor: backgroundColor,
                                     textColor: '#FFFFFF',
@@ -375,7 +380,30 @@
                                         calendar_id: event.calendar_id
                                     }
                                 };
+                                
+                                // Handle date strings properly (ISO format or Date objects)
+                                if (event.start) {
+                                    console.log(`Event "${event.title}" start: ${event.start} (type: ${typeof event.start})`);
+                                    fcEvent.start = event.start;
+                                }
+                                
+                                if (event.end) {
+                                    console.log(`Event "${event.title}" end: ${event.end} (type: ${typeof event.end})`);
+                                    fcEvent.end = event.end;
+                                }
+                                
+                                // Set allDay property if available
+                                if (event.allDay !== undefined) {
+                                    fcEvent.allDay = Boolean(event.allDay);
+                                }
+                                
+                                return fcEvent;
                             });
+                            
+                            // Log the mapped events
+                            console.log('Mapped events for FullCalendar:', mappedEvents);
+                            
+                            // Call the success callback with our mapped events
                             successCallback(mappedEvents);
                         })
                         .catch(error => {

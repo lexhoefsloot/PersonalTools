@@ -11,6 +11,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 import os
 import glob
+import sqlite3
 
 bp = Blueprint('calendar', __name__, url_prefix='/calendar')
 
@@ -681,4 +682,182 @@ def debug_calendars():
         'platform': platform.system(),
         'providers': calendar_providers,
         'sources': sources
-    }) 
+    })
+
+def get_thunderbird_events(calendars, start_date, end_date):
+    """Get events from Thunderbird calendars for a specific date range"""
+    events = []
+    
+    # Log parameters
+    print(f"DEBUG: Fetching Thunderbird events. Start: {start_date}, End: {end_date}")
+    print(f"DEBUG: Calendars requested: {calendars}")
+    
+    # Find all calendar databases
+    calendar_databases = find_all_calendar_databases()
+    
+    if not calendar_databases:
+        print("DEBUG: No Thunderbird calendar databases found.")
+        return events
+    
+    # For each database, fetch events
+    for db_path in calendar_databases:
+        print(f"DEBUG: Checking database: {db_path}")
+        db_events = []
+        
+        try:
+            # Connect to database
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Extract calendar IDs from the requested calendars
+            calendar_ids = []
+            for calendar in calendars:
+                # Extract calendar ID from the combined string
+                if isinstance(calendar, dict) and 'id' in calendar:
+                    cal_id = calendar['id'].replace('thunderbird:', '') if calendar['id'].startswith('thunderbird:') else calendar['id']
+                else:
+                    cal_id = calendar.replace('thunderbird:', '') if calendar.startswith('thunderbird:') else calendar
+                calendar_ids.append(cal_id)
+            
+            print(f"DEBUG: Looking for events from calendar IDs: {calendar_ids}")
+            
+            # Convert dates to Unix timestamp for SQLite query (microseconds)
+            # Ensure the timestamps are in UTC for consistency
+            if start_date.tzinfo is not None:
+                start_timestamp = int(start_date.astimezone(timezone.utc).timestamp() * 1000000)
+            else:
+                start_timestamp = int(start_date.replace(tzinfo=timezone.utc).timestamp() * 1000000)
+                
+            if end_date.tzinfo is not None:
+                end_timestamp = int(end_date.astimezone(timezone.utc).timestamp() * 1000000)
+            else:
+                end_timestamp = int(end_date.replace(tzinfo=timezone.utc).timestamp() * 1000000)
+            
+            # Get available tables in the database
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [t[0] for t in cursor.fetchall()]
+            print(f"DEBUG: Available tables: {tables}")
+            
+            # Check if events table exists
+            if 'cal_events' not in tables:
+                print(f"DEBUG: No cal_events table found in {db_path}")
+                conn.close()
+                continue
+            
+            # Get the columns in the events table
+            cursor.execute("PRAGMA table_info(cal_events)")
+            columns = [col[1] for col in cursor.fetchall()]
+            print(f"DEBUG: cal_events columns: {columns}")
+            
+            # Determine which time columns to use based on the database schema
+            start_time_col = 'event_start'
+            end_time_col = 'event_end'
+            
+            if 'start_time' in columns and 'end_time' in columns:
+                start_time_col = 'start_time'
+                end_time_col = 'end_time'
+            
+            print(f"DEBUG: Using time columns: {start_time_col} and {end_time_col}")
+            
+            # Format calendar IDs for SQL query
+            cal_id_placeholders = ','.join(['?'] * len(calendar_ids)) if calendar_ids else '1'
+            query_params = calendar_ids.copy() if calendar_ids else []
+            
+            # If no specific calendar IDs are provided, get all events
+            if not calendar_ids:
+                query = f"""
+                SELECT cal_id, title, {start_time_col}, {end_time_col}, id
+                FROM cal_events
+                WHERE (({start_time_col} >= ? AND {start_time_col} <= ?) OR 
+                       ({end_time_col} >= ? AND {end_time_col} <= ?) OR
+                       ({start_time_col} <= ? AND {end_time_col} >= ?))
+                ORDER BY {start_time_col} ASC
+                """
+                query_params = [start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp]
+            else:
+                query = f"""
+                SELECT cal_id, title, {start_time_col}, {end_time_col}, id
+                FROM cal_events
+                WHERE cal_id IN ({cal_id_placeholders})
+                AND (({start_time_col} >= ? AND {start_time_col} <= ?) OR 
+                     ({end_time_col} >= ? AND {end_time_col} <= ?) OR
+                     ({start_time_col} <= ? AND {end_time_col} >= ?))
+                ORDER BY {start_time_col} ASC
+                """
+                query_params.extend([start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp])
+            
+            print(f"DEBUG: Running query: {query}")
+            print(f"DEBUG: Query parameters: {query_params}")
+            
+            # Execute the query
+            cursor.execute(query, query_params)
+            results = cursor.fetchall()
+            print(f"DEBUG: Found {len(results)} events in database {db_path}")
+            
+            # Process each event
+            for event in results:
+                cal_id, title, event_start, event_end, event_id = event
+                
+                try:
+                    # Convert timestamps to datetime objects with UTC timezone
+                    start_dt = datetime.fromtimestamp(event_start / 1000000, timezone.utc)
+                    end_dt = datetime.fromtimestamp(event_end / 1000000, timezone.utc)
+                    
+                    # Format as ISO 8601 strings with 'Z' to indicate UTC
+                    start_iso = start_dt.isoformat().replace('+00:00', 'Z')
+                    end_iso = end_dt.isoformat().replace('+00:00', 'Z')
+                    
+                    print(f"DEBUG: Converted event times - Start: {start_iso}, End: {end_iso}")
+                    
+                    # Try to get event location if available
+                    location = None
+                    if 'cal_properties' in tables:
+                        try:
+                            # Look up the location property for this event
+                            cursor.execute("""
+                                SELECT value FROM cal_properties 
+                                WHERE item_id = ? AND key = 'LOCATION'
+                            """, [event_id])
+                            loc_row = cursor.fetchone()
+                            if loc_row:
+                                location = loc_row[0]
+                        except Exception as e:
+                            print(f"DEBUG: Error getting event location: {e}")
+                    
+                    # Add event to results
+                    event_data = {
+                        'id': f"thunderbird:{event_id}",
+                        'calendar_id': f"thunderbird:{cal_id}",
+                        'title': title,
+                        'start': start_iso,
+                        'end': end_iso,
+                        'provider': 'thunderbird'
+                    }
+                    
+                    # Add location if available
+                    if location:
+                        event_data['location'] = location
+                    
+                    db_events.append(event_data)
+                except Exception as e:
+                    print(f"DEBUG: Error processing event {event_id}: {e}")
+            
+            # Add a sample of events for debugging
+            if db_events:
+                print(f"DEBUG: Sample event data (first up to 3 events):")
+                for i, event in enumerate(db_events[:3]):
+                    print(f"DEBUG: Event {i+1}: Calendar: {event['calendar_id']}, Title: {event['title']}, Start: {event['start']}, End: {event['end']}")
+            
+            # Add events from this database to the overall result
+            events.extend(db_events)
+            
+            # Close database connection
+            conn.close()
+            
+        except Exception as e:
+            print(f"DEBUG: Error fetching events from Thunderbird database: {e}")
+            import traceback
+            print(f"DEBUG: {traceback.format_exc()}")
+    
+    print(f"DEBUG: Total Thunderbird events found: {len(events)}")
+    return events 
