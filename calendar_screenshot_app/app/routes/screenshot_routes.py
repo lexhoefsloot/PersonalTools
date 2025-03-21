@@ -142,6 +142,32 @@ def upload_screenshot():
             if slot['end_time'].tzinfo is None:
                 slot['end_time'] = slot['end_time'].replace(tzinfo=timezone.utc)
             
+            # Extract the current calendar year from session or default to now
+            calendar_year = datetime.now().year
+            try:
+                # Look at the first event's year to determine what year the calendar is displaying
+                if all_events and len(all_events) > 0:
+                    first_event = all_events[0]
+                    if isinstance(first_event['start'], datetime):
+                        calendar_year = first_event['start'].year
+                    elif isinstance(first_event['start'], str):
+                        # Parse ISO date string
+                        calendar_year = int(first_event['start'].split('-')[0])
+            except Exception as e:
+                print(f"DEBUG: Error determining calendar year: {e}, using current year")
+
+            # Add debug info
+            print(f"DEBUG: Calendar year detected as {calendar_year}")
+            print(f"DEBUG: Original slot time - Start: {slot['start_time']}, End: {slot['end_time']}")
+
+            # Adjust all slot years to match the calendar year if they differ
+            slot_year = slot['start_time'].year
+            if slot_year != calendar_year:
+                # Create new datetime objects with the calendar year but keep original month/day/time
+                slot['start_time'] = slot['start_time'].replace(year=calendar_year)
+                slot['end_time'] = slot['end_time'].replace(year=calendar_year)
+                print(f"DEBUG: Adjusted slot time to calendar year {calendar_year} - Start: {slot['start_time']}, End: {slot['end_time']}")
+            
             # Ensure available is not null (prevents rendering issues)
             if slot['available'] is None:
                 slot['available'] = True  # Default to available if not specified
@@ -296,21 +322,41 @@ def analyze_screenshot_route():
         if result.get('success') and 'time_slots' in result:
             time_slots = result.get('time_slots', [])
             
-            # Ensure time slots have timezone information
+            # Merge user's events from all selected calendars
+            all_events = get_all_calendar_events(selected_calendars)
+            
+            # Extract the current calendar year from events or default to now
+            calendar_year = datetime.now().year
+            try:
+                # Look at the first event's year to determine what year the calendar is displaying
+                if all_events and len(all_events) > 0:
+                    first_event = all_events[0]
+                    if isinstance(first_event['start'], datetime):
+                        calendar_year = first_event['start'].year
+                    elif isinstance(first_event['start'], str):
+                        # Parse ISO date string
+                        calendar_year = int(first_event['start'].split('-')[0])
+            except Exception as e:
+                print(f"DEBUG: Error determining calendar year: {e}, using current year")
+            
+            print(f"DEBUG: Calendar year detected as {calendar_year}")
+            
+            # Ensure time slots have timezone information and correct year
             for slot in time_slots:
                 # Make timezone-aware if they're naive
                 if slot['start_time'].tzinfo is None:
                     slot['start_time'] = slot['start_time'].replace(tzinfo=timezone.utc)
                 if slot['end_time'].tzinfo is None:
                     slot['end_time'] = slot['end_time'].replace(tzinfo=timezone.utc)
-            
-            # Merge user's events from all selected calendars
-            all_events = get_all_calendar_events(selected_calendars)
-            
-            # For each time slot, check if it conflicts with any events
-            for slot in time_slots:
-                slot_start = slot['start_time']
-                slot_end = slot['end_time']
+                
+                # Adjust year if it doesn't match the calendar year
+                print(f"DEBUG: Original slot time - Start: {slot['start_time']}, End: {slot['end_time']}")
+                slot_year = slot['start_time'].year
+                if slot_year != calendar_year:
+                    # Create new datetime objects with the calendar year but keep original month/day/time
+                    slot['start_time'] = slot['start_time'].replace(year=calendar_year)
+                    slot['end_time'] = slot['end_time'].replace(year=calendar_year)
+                    print(f"DEBUG: Adjusted slot time to calendar year {calendar_year} - Start: {slot['start_time']}, End: {slot['end_time']}")
                 
                 # Initialize conflicts list if not present
                 if 'conflicts' not in slot:
@@ -318,32 +364,6 @@ def analyze_screenshot_route():
                     
                 # Default to available
                 slot['available'] = True
-                
-                # Check for conflicts
-                for event in all_events:
-                    event_start = event['start']
-                    event_end = event['end']
-                    
-                    # Check if event overlaps with slot
-                    if ((event_start <= slot_start < event_end) or
-                        (event_start < slot_end <= event_end) or
-                        (slot_start <= event_start and event_end <= slot_end)):
-                        
-                        # Mark as unavailable and add to conflicts
-                        slot['available'] = False
-                        slot['conflicts'].append({
-                            'title': event['title'],
-                            'start': event_start,
-                            'end': event_end
-                        })
-            
-            # If it's a time request (not suggestion), find alternative slots
-            if 'is_suggestion' in result and not result['is_suggestion']:
-                suggested_slots = find_alternative_slots(time_slots, all_events)
-                return render_template('analysis_results.html', 
-                                      result=result, 
-                                      suggested_slots=suggested_slots, 
-                                      all_calendar_events=all_events)
         
         # Render template with results
         return render_template('analysis_results.html', 
@@ -458,14 +478,6 @@ def analyze_clipboard():
         # If we have time slots in the result, check availability
         if result.get('success') and 'time_slots' in result:
             time_slots = result.get('time_slots', [])
-            
-            # Ensure time slots have timezone information
-            for slot in time_slots:
-                # Make timezone-aware if they're naive
-                if slot['start_time'].tzinfo is None:
-                    slot['start_time'] = slot['start_time'].replace(tzinfo=timezone.utc)
-                if slot['end_time'].tzinfo is None:
-                    slot['end_time'] = slot['end_time'].replace(tzinfo=timezone.utc)
             
             # Merge user's events from all selected calendars
             all_events = get_all_calendar_events(selected_calendars)
