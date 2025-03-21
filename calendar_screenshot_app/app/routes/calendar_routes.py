@@ -261,15 +261,26 @@ def get_events():
         print(f"DEBUG: Using default time range: {start_time} - {end_time}")
     else:
         try:
-            start_time = datetime.fromisoformat(start_time_str)
-            end_time = datetime.fromisoformat(end_time_str)
-        except ValueError:
-            # Handle ISO 8601 format from FullCalendar which may include 'Z' for UTC
-            start_time_str = start_time_str.replace('Z', '+00:00')
-            end_time_str = end_time_str.replace('Z', '+00:00')
-            start_time = datetime.fromisoformat(start_time_str)
-            end_time = datetime.fromisoformat(end_time_str)
-        print(f"DEBUG: Parsed time range: {start_time} - {end_time}")
+            # Fix format issue: replace space before timezone with '+'
+            if ' ' in start_time_str:
+                start_time_str = start_time_str.replace(' ', '+', 1)
+            if ' ' in end_time_str:
+                end_time_str = end_time_str.replace(' ', '+', 1)
+                
+            try:
+                start_time = datetime.fromisoformat(start_time_str)
+                end_time = datetime.fromisoformat(end_time_str)
+            except ValueError:
+                # Handle ISO 8601 format from FullCalendar which may include 'Z' for UTC
+                start_time_str = start_time_str.replace('Z', '+00:00')
+                end_time_str = end_time_str.replace('Z', '+00:00')
+                start_time = datetime.fromisoformat(start_time_str)
+                end_time = datetime.fromisoformat(end_time_str)
+            print(f"DEBUG: Parsed time range: {start_time} - {end_time}")
+        except ValueError as e:
+            print(f"ERROR: Could not parse date format. start_time_str={start_time_str}, end_time_str={end_time_str}")
+            print(f"ERROR: {str(e)}")
+            return jsonify({'error': f'Invalid date format: {str(e)}'}), 400
     
     selected_calendars = session.get('selected_calendars', [])
     print(f"DEBUG: Selected calendars from session: {selected_calendars}")
