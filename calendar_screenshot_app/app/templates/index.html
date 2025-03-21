@@ -286,9 +286,14 @@
                 },
                 events: function(info, successCallback, failureCallback) {
                     // Show loading indicator
-                    document.getElementById('calendar-status').style.display = 'block';
-                    document.getElementById('calendar-loading').style.display = 'block';
-                    document.getElementById('calendar-error').style.display = 'none';
+                    const calendarStatus = document.getElementById('calendar-status');
+                    const calendarLoading = document.getElementById('calendar-loading');
+                    const calendarError = document.getElementById('calendar-error');
+                    
+                    // Only manipulate the elements if they exist
+                    if (calendarStatus) calendarStatus.style.display = 'block';
+                    if (calendarLoading) calendarLoading.style.display = 'block';
+                    if (calendarError) calendarError.style.display = 'none';
                     
                     const start = info.startStr;
                     const end = info.endStr;
@@ -307,7 +312,7 @@
                         })
                         .then(data => {
                             // Hide loading indicator
-                            document.getElementById('calendar-status').style.display = 'none';
+                            if (calendarStatus) calendarStatus.style.display = 'none';
                             
                             // Log the raw data for debugging
                             console.log('Raw Calendar API response:', data);
@@ -339,7 +344,7 @@
                                 
                                 // Show a message on the calendar itself
                                 const calendarEl = document.getElementById('calendar');
-                                if (calendarEl.querySelector('.fc-view-harness')) {
+                                if (calendarEl && calendarEl.querySelector('.fc-view-harness')) {
                                     const noEventsMsg = document.createElement('div');
                                     noEventsMsg.className = 'text-center text-muted p-4';
                                     noEventsMsg.innerHTML = '<i class="bi bi-calendar-x mb-2" style="font-size: 2rem;"></i><div>No events found in your calendars for this period</div>';
@@ -423,10 +428,10 @@
                         })
                         .catch(error => {
                             // Show error message
-                            document.getElementById('calendar-status').style.display = 'block';
-                            document.getElementById('calendar-loading').style.display = 'none';
-                            document.getElementById('calendar-error').style.display = 'block';
-                            document.getElementById('calendar-error-message').textContent = `Error: ${error.message}`;
+                            if (calendarStatus) calendarStatus.style.display = 'block';
+                            if (calendarLoading) calendarLoading.style.display = 'none';
+                            if (calendarError) calendarError.style.display = 'block';
+                            if (calendarError) calendarError.textContent = `Error: ${error.message}`;
                             
                             console.error('Error fetching events:', error);
                             if (typeof window.addDebugEntry === 'function') {
