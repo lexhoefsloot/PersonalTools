@@ -209,18 +209,90 @@ def get_thunderbird_calendars():
             tables = [t[0] for t in cursor.fetchall()]
             print(f"DEBUG: Available tables: {tables}")
             
-            # First try the cal_properties table to get calendar information
-            # This is where newer Thunderbird versions store calendar metadata
-            if 'cal_properties' in tables:
+            # First look for calendar IDs in cal_metadata, which often has calendar information
+            if 'cal_metadata' in tables:
+                print(f"DEBUG: Checking cal_metadata table for calendar information")
+                try:
+                    # Find the actual calendar IDs first - they are often prefixed with 'calendar-'
+                    cursor.execute("""
+                        SELECT DISTINCT item_id FROM cal_metadata 
+                        WHERE item_id LIKE 'calendar-%'
+                    """)
+                    cal_items = cursor.fetchall()
+                    
+                    if cal_items:
+                        print(f"DEBUG: Found {len(cal_items)} potential calendars in cal_metadata")
+                        
+                        # For each calendar ID, get the name and other properties
+                        for item in cal_items:
+                            cal_id = item[0]
+                            print(f"DEBUG: Processing calendar ID: {cal_id}")
+                            
+                            # Get calendar name
+                            cursor.execute("""
+                                SELECT value FROM cal_metadata 
+                                WHERE item_id = ? AND key = 'name'
+                            """, [cal_id])
+                            name_row = cursor.fetchone()
+                            cal_name = name_row[0] if name_row else cal_id.replace('calendar-', '')
+                            
+                            # Get calendar color
+                            cursor.execute("""
+                                SELECT value FROM cal_metadata 
+                                WHERE item_id = ? AND key = 'color'
+                            """, [cal_id])
+                            color_row = cursor.fetchone()
+                            cal_color = color_row[0] if color_row else "#3366CC"
+                            
+                            # Get calendar URI
+                            cursor.execute("""
+                                SELECT value FROM cal_metadata 
+                                WHERE item_id = ? AND key = 'uri'
+                            """, [cal_id])
+                            uri_row = cursor.fetchone()
+                            cal_uri = uri_row[0] if uri_row else None
+                            
+                            # Extract a unique ID from the calendar URI or use the cal_id
+                            if cal_uri and 'calendar=' in cal_uri:
+                                # Extract the calendar ID from the URI
+                                # Format is often like "moz-storage-calendar://uuid" or contains "calendar=name"
+                                unique_id = cal_uri.split('calendar=')[-1].split('&')[0]
+                            else:
+                                unique_id = cal_id.replace('calendar-', '')
+                            
+                            print(f"DEBUG: Calendar details - Name: {cal_name}, ID: {unique_id}, Color: {cal_color}")
+                            
+                            # Add to calendars list
+                            calendars.append({
+                                'id': f"thunderbird:{unique_id}",
+                                'name': cal_name,
+                                'color': cal_color,
+                                'provider': 'thunderbird'
+                            })
+                            print(f"DEBUG: Added calendar: ID={unique_id}, Name={cal_name}, Color={cal_color}")
+                except Exception as e:
+                    print(f"DEBUG: Error extracting calendars from cal_metadata: {e}")
+            
+            # If no calendars found yet, try the cal_properties table
+            if not calendars and 'cal_properties' in tables:
                 print(f"DEBUG: Trying to extract calendars from cal_properties table")
                 try:
-                    # Get distinct calendar IDs from properties
+                    # Get distinct calendar IDs from properties with key='calendar-id'
                     cursor.execute("""
                         SELECT DISTINCT cal_id FROM cal_properties 
-                        WHERE key='name' OR key='color'
+                        WHERE key='calendar-id'
                     """)
                     cal_ids = [row[0] for row in cursor.fetchall()]
-                    print(f"DEBUG: Found potential calendar IDs: {cal_ids}")
+                    print(f"DEBUG: Found calendar IDs with calendar-id property: {cal_ids}")
+                    
+                    if not cal_ids:
+                        # Look for calendars in the cal_id field where key is 'name'
+                        cursor.execute("""
+                            SELECT DISTINCT cal_id FROM cal_properties 
+                            WHERE key='name' AND value NOT LIKE 'CAL:%'
+                        """)
+                        cal_ids = [row[0] for row in cursor.fetchall()]
+                        print(f"DEBUG: Found calendar IDs with name property: {cal_ids}")
                     
                     # For each calendar ID, get its name and color
                     for cal_id in cal_ids:
@@ -250,8 +322,10 @@ def get_thunderbird_calendars():
                         print(f"DEBUG: Added calendar: ID={cal_id}, Name={cal_name}, Color={cal_color}")
                 except Exception as e:
                     print(f"DEBUG: Error extracting calendars from cal_properties: {e}")
+                    import traceback
+                    print(f"DEBUG: {traceback.format_exc()}")
             
-            # If no calendars found yet, try the classic cal_calendars table
+            # If still no calendars found, try the cal_calendars table (older format)
             if not calendars and 'cal_calendars' in tables:
                 print(f"DEBUG: Found cal_calendars table, getting data")
                 
@@ -281,36 +355,37 @@ def get_thunderbird_calendars():
                     })
                     print(f"DEBUG: Found calendar with ID: thunderbird:{cal_id}, Name: {name}")
             
-            # If still no calendars, try to extract unique calendar IDs from events
+            # If still no calendars, try to find unique cal_id values in events table
             if not calendars and 'cal_events' in tables:
                 print(f"DEBUG: No calendars found yet, trying to extract from cal_events table")
                 
                 # Extract unique calendar IDs from events
-                cursor.execute("SELECT DISTINCT cal_id FROM cal_events")
-                cal_ids = cursor.fetchall()
+                cursor.execute("""
+                    SELECT DISTINCT cal_id, COUNT(*) as event_count
+                    FROM cal_events
+                    GROUP BY cal_id
+                    ORDER BY event_count DESC
+                """)
+                cal_id_counts = cursor.fetchall()
                 
                 # Check if we found any
-                if cal_ids:
-                    print(f"DEBUG: Found {len(cal_ids)} unique calendar IDs from events")
+                if cal_id_counts:
+                    print(f"DEBUG: Found {len(cal_id_counts)} unique calendar IDs from events with counts: {cal_id_counts}")
                     
                     # For each calendar ID, create a calendar entry
-                    for cal_id_row in cal_ids:
-                        cal_id = cal_id_row[0]
+                    for cal_id_row in cal_id_counts:
+                        cal_id, event_count = cal_id_row
                         
-                        # Try to get some additional information about this calendar
-                        # First, get the calendar name from metadata if available
-                        cal_name = f"Calendar {cal_id}"
-                        if 'cal_metadata' in tables:
-                            try:
-                                cursor.execute("""
-                                    SELECT value FROM cal_metadata 
-                                    WHERE item_id = ? AND key = 'name'
-                                """, [cal_id])
-                                name_row = cursor.fetchone()
-                                if name_row:
-                                    cal_name = name_row[0]
-                            except Exception as e:
-                                print(f"DEBUG: Error getting calendar name from metadata: {e}")
+                        # Try to get sample event to help identify the calendar
+                        cursor.execute("""
+                            SELECT title FROM cal_events 
+                            WHERE cal_id = ? 
+                            ORDER BY event_start DESC LIMIT 1
+                        """, [cal_id])
+                        sample_event = cursor.fetchone()
+                        sample_title = sample_event[0] if sample_event else "Unknown"
+                        
+                        cal_name = f"Calendar {cal_id} ({event_count} events, latest: {sample_title})"
                         
                         # Add calendar to the list
                         calendars.append({
@@ -322,6 +397,19 @@ def get_thunderbird_calendars():
                         print(f"DEBUG: Added calendar from events: ID={cal_id}, Name={cal_name}")
                 else:
                     print(f"DEBUG: No calendar IDs found in events table")
+            
+            # Analyze sample events for debugging
+            if 'cal_events' in tables and not calendars:
+                try:
+                    print(f"DEBUG: Analyzing sample events to debug calendar issue")
+                    cursor.execute("SELECT cal_id, title, event_start FROM cal_events ORDER BY event_start DESC LIMIT 5")
+                    sample_events = cursor.fetchall()
+                    for i, event in enumerate(sample_events):
+                        cal_id, title, start_time = event
+                        date_str = datetime.fromtimestamp(start_time / 1000000).strftime('%Y-%m-%d %H:%M:%S')
+                        print(f"DEBUG: Sample event {i+1}: cal_id={cal_id}, title='{title}', start={date_str}")
+                except Exception as e:
+                    print(f"DEBUG: Error analyzing sample events: {e}")
             
             conn.close()
             
