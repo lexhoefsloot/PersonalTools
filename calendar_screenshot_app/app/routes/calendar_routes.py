@@ -937,8 +937,22 @@ def get_thunderbird_events(calendar_ids, start_date, end_date):
                 start_iso = start_dt.isoformat()
                 end_iso = end_dt.isoformat()
                 
-                # Check if event is an all-day event (bit flag 4)
-                all_day = bool(flags & 4) if flags is not None else False
+                # Properly determine if event is an all-day event
+                # Check if the event is an all-day event (bit 2 in flags - value 4)
+                # But also check if start/end times indicate a full day event
+                is_all_day_flag = bool(flags & 4) if flags is not None else False
+                
+                # Also check if the event spans exactly 24 hours and starts at midnight
+                start_midnight = start_dt.hour == 0 and start_dt.minute == 0 and start_dt.second == 0
+                duration_days = (end_dt - start_dt).total_seconds() / 86400  # 86400 seconds in a day
+                is_full_day_time = start_midnight and (0.99 < duration_days < 1.01)
+                
+                # Override all-day if times clearly indicate a non-all-day event
+                if is_all_day_flag:
+                    # If event doesn't start at midnight or doesn't last ~24 hours, it's not all-day
+                    if not start_midnight or not (0.95 < duration_days < 1.05):
+                        is_all_day_flag = False
+                        print(f"DEBUG: Corrected all-day flag for event '{title}' - has flag but times don't match all-day pattern")
                 
                 # Add to results
                 event_data = {
@@ -947,7 +961,7 @@ def get_thunderbird_events(calendar_ids, start_date, end_date):
                     'title': title,
                     'start': start_iso,
                     'end': end_iso,
-                    'all_day': all_day,
+                    'all_day': is_all_day_flag,
                     'provider': 'thunderbird'
                 }
                 
