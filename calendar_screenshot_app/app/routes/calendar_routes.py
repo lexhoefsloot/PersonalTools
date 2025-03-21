@@ -740,9 +740,15 @@ def get_thunderbird_events(calendar_ids, start_date, end_date):
     requested_cal_ids = []
     for cal_id in calendar_ids:
         if cal_id.startswith('thunderbird:'):
-            requested_cal_ids.append(cal_id[11:])
+            # Fix: properly remove the 'thunderbird:' prefix without leaving an extra colon
+            clean_id = cal_id[11:]  # Remove exactly 'thunderbird:' (11 characters)
+            requested_cal_ids.append(clean_id)
         else:
-            requested_cal_ids.append(cal_id)
+            # If it doesn't have the prefix, make sure it doesn't start with a colon
+            if cal_id.startswith(':'):
+                requested_cal_ids.append(cal_id[1:])
+            else:
+                requested_cal_ids.append(cal_id)
     
     print(f"DEBUG: Requested calendar IDs (without prefix): {requested_cal_ids}")
     
