@@ -15,6 +15,7 @@ A Python web application that:
 4. Checks calendar availability for detected time slots
 5. Provides alternative time suggestions when no suitable slots are found
 6. Allows copying of suitable meeting times to clipboard
+7. Displays a weekly calendar view with all connected calendars' events
 
 ## Current Project Structure
 calendar_screenshot_app/
@@ -34,7 +35,7 @@ calendar_screenshot_app/
 │ │ ├── claude_service.py # Anthropic Claude API integration for image analysis
 │ │ ├── google_calendar.py # Google Calendar API integration
 │ │ ├── microsoft_calendar.py # Microsoft Graph API integration
-│ │ ├── thunderbird_calendar.py # Thunderbird Calendar integration
+│ │ ├── thunderbird_calendar.py # Thunderbird Calendar integration (supports both cache.sqlite and local.sqlite)
 │ │ └── screenshot_analyzer.py # OCR fallback for time extraction
 │ ├── static/ # CSS, JS, and static assets
 │ ├── templates/ # HTML templates
@@ -42,18 +43,25 @@ calendar_screenshot_app/
 │ │ ├── base.html # Base template with layout
 │ │ ├── calendars.html # Calendar selection page
 │ │ ├── dashboard.html # Main dashboard
-│ │ └── index.html # Landing page
+│ │ ├── index.html # Landing page with weekly calendar view
+│ │ ├── api_status.html # API status page
+│ │ └── error.html # Error page
 │ ├── utils/ # Utility functions
 │ └── models/ # Data models
 ├── docs/ # Documentation
 ├── tests/ # Unit and integration tests
 ├── .env # Environment variables
+├── .env.example # Example environment file
 ├── rules.md # Application architecture rules
 ├── README.md # Project documentation
 ├── requirements.txt # Python dependencies
 ├── run.py # Application entry point
 ├── calendar-screenshot.service # Systemd service file
-└── install_debian_service.sh # Debian service installation script
+├── install_debian_service.sh # Debian service installation script
+├── CALENDAR_PERMISSIONS.md # Documentation for calendar access permissions
+├── debug_calendar_access.py # Debug script for calendar access
+├── fetch_calendars.py # Utility script to fetch calendars
+└── fix_calendar_permissions.py # Utility to fix calendar permissions
 
 ## Technical Implementation
 
@@ -63,8 +71,9 @@ calendar_screenshot_app/
    - Google Calendar via Google API
    - Microsoft Calendar via Microsoft Graph API
    - Apple Calendar via AppleScript (macOS only)
-   - Thunderbird Calendar via SQLite database
+   - Thunderbird Calendar via SQLite database (supports both cache.sqlite and local.sqlite formats)
    - Calendar selection and filtering interface
+   - Weekly calendar view with color-coded events
 
 2. **Claude-Powered Screenshot Analysis**
    - Direct integration with Anthropic's Claude API
@@ -81,17 +90,22 @@ calendar_screenshot_app/
 
 4. **User Interface**
    - Responsive Bootstrap-based design
+   - Weekly calendar with color-coded events
    - Clipboard integration for quick analysis
    - Copy-to-clipboard functionality for time slots
    - Calendar status indicators
    - Modal-based screenshot upload
+   - Debug tools for troubleshooting
 
 ### Key Features
 
+- **Weekly Calendar View**: View all your events from different calendars in a single unified week view
+- **Color-Coded Calendars**: Each calendar provider and individual calendar has its own color for easy identification
 - **Claude AI Analysis**: Intelligent screenshot understanding using Claude's multimodal capabilities
 - **Platform Integration**: 
   - Automatic Apple Calendar detection on macOS without authentication
   - Automatic Thunderbird Calendar detection on any platform without authentication
+- **Enhanced Thunderbird Integration**: Support for both cache.sqlite and local.sqlite database formats
 - **Multiple Calendar Sources**: Support for Google, Microsoft, Apple, and Thunderbird calendars
 - **Clipboard Analysis**: Direct analysis from clipboard screenshots
 - **Intelligent Time Detection**: Advanced pattern matching for various time formats
@@ -100,17 +114,24 @@ calendar_screenshot_app/
 - **Responsive UI**: Works on desktop and mobile devices
 - **Quick Copy**: Copy time slots with a single click
 - **Linux Service**: Automatic startup as systemd service on Debian/Ubuntu systems
+- **Debug Functionality**: Built-in tools for debugging calendar integration issues
 
 ## Workflow
 
-1. **Suggesting Times Workflow**:
+1. **Calendar View Workflow**:
+   - User views current week's events across all connected calendars on the homepage
+   - Events are color-coded by calendar source and individual calendar
+   - User can navigate between weeks and switch between week/month views
+   - User can click on events to see additional details
+
+2. **Suggesting Times Workflow**:
    - User uploads screenshot of suggested meeting times
    - Claude analyzes and identifies that someone is suggesting times
    - App checks user's calendar availability for each suggested slot
    - User sees which suggestions work with their schedule
    - User can select and copy suitable times to clipboard
 
-2. **Requesting Times Workflow**:
+3. **Requesting Times Workflow**:
    - User uploads screenshot of someone requesting meeting times
    - Claude analyzes and identifies that someone is requesting times
    - App identifies free slots in the user's calendar around requested times
@@ -128,15 +149,23 @@ calendar_screenshot_app/
 ## Technologies
 
 - **Backend**: Python 3.8+, Flask
-- **Frontend**: HTML5, CSS3, JavaScript, Bootstrap 5
+- **Frontend**: HTML5, CSS3, JavaScript, Bootstrap 5, FullCalendar.js
 - **AI**: Anthropic Claude API for advanced screenshot analysis
 - **APIs**: Google Calendar API, Microsoft Graph API
 - **Local Integrations**: 
   - AppleScript for macOS Calendar
-  - SQLite for Thunderbird Calendar
+  - SQLite for Thunderbird Calendar (supporting both cache.sqlite and local.sqlite formats)
 - **OCR Fallback**: Tesseract, OpenCV, Pillow
 - **Authentication**: OAuth 2.0
 - **Deployment**: 
   - Local development server with dotenv configuration
   - Systemd service for Linux deployment
+
+## Debugging Features
+
+- **Calendar Debug Endpoint**: `/calendar/debug` provides detailed information about available calendars and events
+- **Debug Console**: Interactive console for viewing application logs and errors
+- **Database Inspection**: Automatic detection and inspection of Thunderbird calendar databases
+- **API Status Page**: View the status of connected calendar APIs
+- **Calendar Integration Testing**: Utilities to test calendar access and fix permissions
 

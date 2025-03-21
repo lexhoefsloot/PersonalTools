@@ -52,12 +52,14 @@ def find_calendar_database():
     profiles = find_thunderbird_profiles()
     
     for profile in profiles:
-        # Check common locations for calendar database
+        # Check common locations for calendar database, prioritizing cache.sqlite
         for db_name in ['cache.sqlite', 'local.sqlite']:
             calendar_db = os.path.join(profile, "calendar-data", db_name)
             if os.path.exists(calendar_db):
+                print(f"DEBUG: Found calendar database at {calendar_db}")
                 return calendar_db
     
+    print("DEBUG: No calendar database found in any profile")
     return None
 
 def find_all_calendar_databases():
@@ -68,20 +70,29 @@ def find_all_calendar_databases():
     print(f"DEBUG: Searching for Thunderbird calendar databases")
     print(f"DEBUG: Current platform: {platform.system()}")
     
+    # Define database filenames to search for (prioritize cache.sqlite)
+    db_files = ['cache.sqlite', 'local.sqlite']
+    
     # Platform-specific search paths
     if platform.system() == 'Darwin':  # macOS
-        possible_paths.extend(glob.glob(os.path.expanduser("~/Library/Thunderbird/Profiles/*/calendar-data/local.sqlite")))
-        possible_paths.extend(glob.glob(os.path.expanduser("~/Library/Thunderbird/Profiles/*/storage/default/moz-extension*/*-storage/calendar-data/local.sqlite")))
+        # Search for database files in standard macOS locations
+        for db_file in db_files:
+            possible_paths.extend(glob.glob(os.path.expanduser(f"~/Library/Thunderbird/Profiles/*/calendar-data/{db_file}")))
+            possible_paths.extend(glob.glob(os.path.expanduser(f"~/Library/Thunderbird/Profiles/*/storage/default/moz-extension*/*-storage/calendar-data/{db_file}")))
     elif platform.system() == 'Linux':
-        possible_paths.extend(glob.glob(os.path.expanduser("~/.thunderbird/*/calendar-data/local.sqlite")))
-        possible_paths.extend(glob.glob(os.path.expanduser("~/.icedove/*/calendar-data/local.sqlite")))
-        possible_paths.extend(glob.glob(os.path.expanduser("~/.mozilla-thunderbird/*/calendar-data/local.sqlite")))
-        possible_paths.extend(glob.glob(os.path.expanduser("~/.local/share/thunderbird/*/calendar-data/local.sqlite")))
+        # Search for database files in standard Linux locations
+        for db_file in db_files:
+            possible_paths.extend(glob.glob(os.path.expanduser(f"~/.thunderbird/*/calendar-data/{db_file}")))
+            possible_paths.extend(glob.glob(os.path.expanduser(f"~/.icedove/*/calendar-data/{db_file}")))  # Debian's fork of Thunderbird
+            possible_paths.extend(glob.glob(os.path.expanduser(f"~/.mozilla-thunderbird/*/calendar-data/{db_file}")))  # Older versions
+            possible_paths.extend(glob.glob(os.path.expanduser(f"~/.local/share/thunderbird/*/calendar-data/{db_file}")))
     elif platform.system() == 'Windows':
         appdata = os.getenv('APPDATA', '')
         localappdata = os.getenv('LOCALAPPDATA', '')
-        possible_paths.extend(glob.glob(os.path.join(appdata, "Thunderbird/Profiles/*/calendar-data/local.sqlite")))
-        possible_paths.extend(glob.glob(os.path.join(localappdata, "Thunderbird/Profiles/*/calendar-data/local.sqlite")))
+        # Search for database files in standard Windows locations
+        for db_file in db_files:
+            possible_paths.extend(glob.glob(os.path.join(appdata, f"Thunderbird/Profiles/*/calendar-data/{db_file}")))
+            possible_paths.extend(glob.glob(os.path.join(localappdata, f"Thunderbird/Profiles/*/calendar-data/{db_file}")))
     
     # Debug found paths
     print(f"DEBUG: Found {len(possible_paths)} potential calendar databases: {possible_paths}")
@@ -99,6 +110,13 @@ def find_all_calendar_databases():
                 if cursor.fetchone():
                     valid_paths.append(path)
                     print(f"DEBUG: Valid calendar database found at: {path}")
+                else:
+                    print(f"DEBUG: Database {path} exists but doesn't have cal_calendars table")
+                    
+                    # Try to list the available tables for debugging
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                    tables = cursor.fetchall()
+                    print(f"DEBUG: Tables in {path}: {[t[0] for t in tables]}")
                 
                 conn.close()
             except sqlite3.Error as e:
@@ -131,9 +149,42 @@ def get_thunderbird_calendars():
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            # Query for calendars
-            cursor.execute("SELECT id, name, color FROM cal_calendars WHERE cal_type = 0")
-            result = cursor.fetchall()
+            # Determine if this is cache.sqlite or local.sqlite format
+            is_cache_db = 'cache' in os.path.basename(db_path).lower()
+            print(f"DEBUG: Database type: {'cache.sqlite' if is_cache_db else 'local.sqlite'}")
+            
+            # Check if the database has the cal_calendars table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cal_calendars'")
+            has_calendars_table = cursor.fetchone() is not None
+            
+            if has_calendars_table:
+                print(f"DEBUG: Found cal_calendars table, getting data")
+                
+                # Get the columns in the table to adapt our query
+                cursor.execute("PRAGMA table_info(cal_calendars)")
+                columns = [col[1] for col in cursor.fetchall()]
+                print(f"DEBUG: cal_calendars columns: {columns}")
+                
+                # Some database versions store active calendars with cal_type = 0
+                if 'cal_type' in columns:
+                    query = "SELECT id, name, color FROM cal_calendars WHERE cal_type = 0"
+                else:
+                    query = "SELECT id, name, color FROM cal_calendars"
+                
+                cursor.execute(query)
+                result = cursor.fetchall()
+            else:
+                print(f"DEBUG: No cal_calendars table found, trying to extract calendars from events")
+                
+                # Try to extract calendar IDs from events table
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cal_events'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT DISTINCT cal_id FROM cal_events")
+                    result = [(cal_id[0], f"Calendar {cal_id[0]}", "#3366CC") for cal_id in cursor.fetchall()]
+                    print(f"DEBUG: Extracted {len(result)} calendars from events")
+                else:
+                    result = []
+                    print(f"DEBUG: No cal_events table found, cannot extract calendars")
             
             # Debug found calendars
             print(f"DEBUG: Found {len(result)} calendars in database {db_path}")
@@ -154,6 +205,8 @@ def get_thunderbird_calendars():
             
         except Exception as e:
             print(f"DEBUG: Error getting calendars from Thunderbird database: {e}")
+            import traceback
+            print(f"DEBUG: {traceback.format_exc()}")
     
     print(f"DEBUG: Total Thunderbird calendars found: {len(calendars)}")
     return calendars
@@ -204,18 +257,63 @@ def get_thunderbird_events(calendars, start_date, end_date):
             print(f"DEBUG: Start timestamp: {start_timestamp}, End timestamp: {end_timestamp}")
             print(f"DEBUG: Calendar IDs for filtering: {calendar_ids}")
             
-            # Query events that fall within the date range
-            query = f"""
-            SELECT cal_id, title, event_start, event_end, id
-            FROM cal_events
-            WHERE cal_id IN ({cal_id_placeholders})
-            AND ((event_start >= ? AND event_start <= ?) OR 
-                 (event_end >= ? AND event_end <= ?) OR
-                 (event_start <= ? AND event_end >= ?))
-            """
+            # Check if the database has the necessary tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cal_events'")
+            has_events_table = cursor.fetchone() is not None
             
-            # Execute query with parameters
-            cursor.execute(query, calendar_ids + [start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp])
+            if not has_events_table:
+                print(f"DEBUG: Database {db_path} doesn't have a cal_events table")
+                conn.close()
+                continue
+            
+            # Check if this is cache.sqlite or local.sqlite format
+            is_cache_db = 'cache' in os.path.basename(db_path).lower()
+            
+            # For different database formats, we might need different queries
+            if is_cache_db:
+                # For cache.sqlite format
+                print(f"DEBUG: Using cache.sqlite format query")
+                
+                # Check for columns
+                cursor.execute("PRAGMA table_info(cal_events)")
+                columns = [col[1] for col in cursor.fetchall()]
+                print(f"DEBUG: Available columns: {columns}")
+                
+                # Adapt query based on available columns
+                if 'start_time' in columns and 'end_time' in columns:
+                    # Some versions use start_time/end_time instead of event_start/event_end
+                    query = f"""
+                    SELECT cal_id, title, start_time, end_time, id
+                    FROM cal_events
+                    WHERE cal_id IN ({cal_id_placeholders})
+                    AND ((start_time >= ? AND start_time <= ?) OR 
+                         (end_time >= ? AND end_time <= ?) OR
+                         (start_time <= ? AND end_time >= ?))
+                    """
+                    cursor.execute(query, calendar_ids + [start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp])
+                else:
+                    # Use standard column names
+                    query = f"""
+                    SELECT cal_id, title, event_start, event_end, id
+                    FROM cal_events
+                    WHERE cal_id IN ({cal_id_placeholders})
+                    AND ((event_start >= ? AND event_start <= ?) OR 
+                         (event_end >= ? AND event_end <= ?) OR
+                         (event_start <= ? AND event_end >= ?))
+                    """
+                    cursor.execute(query, calendar_ids + [start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp])
+            else:
+                # For local.sqlite format (older)
+                print(f"DEBUG: Using local.sqlite format query")
+                query = f"""
+                SELECT cal_id, title, event_start, event_end, id
+                FROM cal_events
+                WHERE cal_id IN ({cal_id_placeholders})
+                AND ((event_start >= ? AND event_start <= ?) OR 
+                     (event_end >= ? AND event_end <= ?) OR
+                     (event_start <= ? AND event_end >= ?))
+                """
+                cursor.execute(query, calendar_ids + [start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp])
             
             # Get results
             results = cursor.fetchall()
@@ -271,6 +369,10 @@ def debug_thunderbird_database(db_path):
         tables = cursor.fetchall()
         print(f"DEBUG: Tables in database: {[t[0] for t in tables]}")
         
+        # Determine if this is a newer format (cache.sqlite) or older format (local.sqlite)
+        is_cache_db = 'cache' in os.path.basename(db_path).lower()
+        print(f"DEBUG: Database type: {'cache.sqlite (newer format)' if is_cache_db else 'local.sqlite (older format)'}")
+        
         # Check cal_calendars table
         if ('cal_calendars',) in tables:
             print(f"DEBUG: Examining cal_calendars table...")
@@ -302,8 +404,19 @@ def debug_thunderbird_database(db_path):
             count = cursor.fetchone()[0]
             print(f"DEBUG: cal_events has {count} records")
             
-            # Sample records
+            # Check if records exist with sample cal_id values
             if count > 0:
+                # Get distinct calendar IDs
+                cursor.execute("SELECT DISTINCT cal_id FROM cal_events")
+                cal_ids = cursor.fetchall()
+                print(f"DEBUG: Found {len(cal_ids)} distinct calendar IDs in events: {[c[0] for c in cal_ids]}")
+                
+                # Check for distinct event fields
+                cursor.execute("SELECT COUNT(DISTINCT title) FROM cal_events")
+                distinct_titles = cursor.fetchone()[0]
+                print(f"DEBUG: Found {distinct_titles} distinct event titles")
+                
+                # Sample records
                 cursor.execute("SELECT id, cal_id, title, event_start, event_end FROM cal_events LIMIT 3")
                 records = cursor.fetchall()
                 for i, record in enumerate(records):
@@ -326,6 +439,21 @@ def debug_thunderbird_database(db_path):
                 print(f"DEBUG: Checking for events in current week: {week_start} to {week_end}")
                 print(f"DEBUG: Timestamps: {start_timestamp} to {end_timestamp}")
                 
+                # Broad query first to see if there are any events in the general timeframe
+                cursor.execute("SELECT COUNT(*) FROM cal_events WHERE event_start > ? AND event_start < ?", 
+                              [start_timestamp - 86400000000, end_timestamp + 86400000000])  # +/- 1 day in microseconds
+                count_timeframe = cursor.fetchone()[0]
+                print(f"DEBUG: Found {count_timeframe} events in the general week timeframe (including buffer)")
+                
+                # Check without overlap conditions first
+                cursor.execute("""
+                SELECT COUNT(*) FROM cal_events 
+                WHERE event_start >= ? AND event_start <= ?
+                """, [start_timestamp, end_timestamp])
+                count_simple = cursor.fetchone()[0]
+                print(f"DEBUG: Found {count_simple} events with start times in the exact week range")
+                
+                # Now use the more complex overlap condition
                 query = """
                 SELECT cal_id, title, event_start, event_end, id
                 FROM cal_events
@@ -338,7 +466,7 @@ def debug_thunderbird_database(db_path):
                 cursor.execute(query, [start_timestamp, end_timestamp, start_timestamp, end_timestamp, start_timestamp, end_timestamp])
                 weekly_events = cursor.fetchall()
                 
-                print(f"DEBUG: Found {len(weekly_events)} events in current week")
+                print(f"DEBUG: Found {len(weekly_events)} events in current week with overlap condition")
                 for i, event in enumerate(weekly_events):
                     cal_id, title, event_start, event_end, event_id = event
                     try:
