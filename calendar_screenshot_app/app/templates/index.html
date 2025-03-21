@@ -27,12 +27,28 @@
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h2 class="h5 mb-0">Your Week at a Glance</h2>
-                <a href="{{ url_for('calendar.list_calendars') }}" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-gear me-1"></i>Manage Calendars
-                </a>
+                <div class="d-flex gap-2">
+                    <a href="{{ url_for('calendar.list_calendars') }}" class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-gear me-1"></i>Manage Calendars
+                    </a>
+                    <button id="debug-mode-btn" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-bug me-1"></i>Debug
+                    </button>
+                </div>
             </div>
             <div class="card-body">
                 <div id="calendar" style="height: 600px;"></div>
+                
+                <!-- Calendar Loading/Error Indicator -->
+                <div id="calendar-status" class="text-center my-3" style="display: none;">
+                    <div class="spinner-border text-primary mb-2" role="status" id="calendar-loading">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <div id="calendar-error" class="alert alert-danger" style="display: none;">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                        <span id="calendar-error-message">Error loading calendar events</span>
+                    </div>
+                </div>
                 
                 <!-- Calendar Legend -->
                 <div class="mt-3">
@@ -56,6 +72,29 @@
                         </div>
                     </div>
                     <p class="text-muted small mt-2">Each calendar within a provider will be assigned a different shade of color</p>
+                </div>
+                
+                <!-- Debugging Information (will be shown only when needed) -->
+                <div id="calendar-debug-info" class="mt-3 p-3 border rounded bg-light" style="display: none;">
+                    <h6 class="text-muted mb-2">Debug Information</h6>
+                    <div class="small">
+                        <div class="mb-2">
+                            <strong>Selected Calendars:</strong>
+                            <pre id="selected-calendars-debug" class="bg-dark text-light p-2 mt-1" style="font-size: 0.8rem; max-height: 100px; overflow-y: auto;">None</pre>
+                        </div>
+                        <div class="mb-2">
+                            <strong>API Response:</strong>
+                            <pre id="api-response-debug" class="bg-dark text-light p-2 mt-1" style="font-size: 0.8rem; max-height: 200px; overflow-y: auto;">No data yet</pre>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2 mt-2">
+                        <button class="btn btn-sm btn-outline-secondary" id="refresh-calendar-btn">
+                            <i class="bi bi-arrow-clockwise me-1"></i>Refresh Calendar
+                        </button>
+                        <a href="{{ url_for('calendar.debug_calendars') }}" target="_blank" class="btn btn-sm btn-outline-info">
+                            <i class="bi bi-bug me-1"></i>Calendar Debug Data
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -239,10 +278,61 @@
                     });
                 },
                 events: function(info, successCallback, failureCallback) {
+                    // Show loading indicator
+                    document.getElementById('calendar-status').style.display = 'block';
+                    document.getElementById('calendar-loading').style.display = 'block';
+                    document.getElementById('calendar-error').style.display = 'none';
+                    
                     // Fetch events from the server
                     fetch(`{{ url_for('calendar.get_events') }}?start=${info.startStr}&end=${info.endStr}`)
-                        .then(response => response.json())
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
+                            }
+                            return response.json();
+                        })
                         .then(data => {
+                            // Hide loading indicator
+                            document.getElementById('calendar-status').style.display = 'none';
+                            
+                            if (typeof window.addDebugEntry === 'function') {
+                                window.addDebugEntry(`Calendar API response: ${JSON.stringify(data).substring(0, 200)}...`, 'info');
+                            }
+                            console.log('Calendar API response:', data);
+                            
+                            // Update debug information
+                            updateCalendarDebugInfo(data);
+                            
+                            // Check if there are any events
+                            if (!data.events || data.events.length === 0) {
+                                if (typeof window.addDebugEntry === 'function') {
+                                    window.addDebugEntry('No calendar events found in the response', 'warning');
+                                }
+                                console.warn('No calendar events found in the response');
+                                
+                                // Show a message on the calendar itself (optional, can be removed)
+                                const calendarEl = document.getElementById('calendar');
+                                if (calendarEl.querySelector('.fc-view-harness')) {
+                                    const noEventsMsg = document.createElement('div');
+                                    noEventsMsg.className = 'text-center text-muted p-4';
+                                    noEventsMsg.innerHTML = '<i class="bi bi-calendar-x mb-2" style="font-size: 2rem;"></i><div>No events found in your calendars for this period</div>';
+                                    noEventsMsg.style.position = 'absolute';
+                                    noEventsMsg.style.top = '50%';
+                                    noEventsMsg.style.left = '50%';
+                                    noEventsMsg.style.transform = 'translate(-50%, -50%)';
+                                    noEventsMsg.style.zIndex = '1';
+                                    
+                                    // Remove any existing no-events message first
+                                    const existingMsg = calendarEl.querySelector('.no-events-message');
+                                    if (existingMsg) {
+                                        existingMsg.remove();
+                                    }
+                                    
+                                    noEventsMsg.classList.add('no-events-message');
+                                    calendarEl.querySelector('.fc-view-harness').appendChild(noEventsMsg);
+                                }
+                            }
+                            
                             // Map events to FullCalendar format with different colors per calendar
                             const mappedEvents = data.events.map(event => {
                                 // Get provider and determine color
@@ -283,14 +373,96 @@
                             successCallback(mappedEvents);
                         })
                         .catch(error => {
+                            // Show error message
+                            document.getElementById('calendar-status').style.display = 'block';
+                            document.getElementById('calendar-loading').style.display = 'none';
+                            document.getElementById('calendar-error').style.display = 'block';
+                            document.getElementById('calendar-error-message').textContent = `Error: ${error.message}`;
+                            
                             console.error('Error fetching events:', error);
+                            if (typeof window.addDebugEntry === 'function') {
+                                window.addDebugEntry(`Error fetching calendar events: ${error.message}`, 'error');
+                            }
                             failureCallback(error);
                         });
                 }
             });
             
             calendar.render();
+            
+            // Initialize debug panel
+            initCalendarDebug();
+            
+            // Refresh button functionality
+            document.getElementById('refresh-calendar-btn').addEventListener('click', function() {
+                calendar.refetchEvents();
+            });
+            
+            // Debug button functionality
+            document.getElementById('debug-mode-btn').addEventListener('click', function() {
+                const debugPanel = document.getElementById('calendar-debug-info');
+                if (debugPanel.style.display === 'none') {
+                    debugPanel.style.display = 'block';
+                    
+                    // Load selected calendars info
+                    fetch('{{ url_for('calendar.debug_calendars') }}')
+                        .then(response => response.json())
+                        .then(data => {
+                            document.getElementById('selected-calendars-debug').textContent = 
+                                JSON.stringify(data.session.selected_calendars, null, 2) || 'No calendars selected';
+                            
+                            // Also show some of the debug data
+                            document.getElementById('api-response-debug').textContent = 
+                                JSON.stringify(data, null, 2);
+                        })
+                        .catch(err => {
+                            document.getElementById('selected-calendars-debug').textContent = 
+                                'Error fetching calendar data: ' + err.message;
+                        });
+                } else {
+                    debugPanel.style.display = 'none';
+                }
         }
     });
+    
+    // Debug panel initialization
+    function initCalendarDebug() {
+        // Check if URL has debug parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const debugMode = urlParams.get('debug') === 'true';
+        
+        if (debugMode) {
+            document.getElementById('calendar-debug-info').style.display = 'block';
+            
+            // Load selected calendars via API
+            fetch('{{ url_for('calendar.list_calendars') }}')
+                .then(response => response.text())
+                .then(html => {
+                    // Extract session data from HTML (simpler than making a new API endpoint)
+                    const match = html.match(/selected_calendars = (\[.*?\])/);
+                    if (match && match[1]) {
+                        try {
+                            const calendars = JSON.parse(match[1].replace(/'/g, '"'));
+                            document.getElementById('selected-calendars-debug').textContent = 
+                                calendars.length > 0 ? JSON.stringify(calendars, null, 2) : 'No calendars selected';
+                        } catch (e) {
+                            document.getElementById('selected-calendars-debug').textContent = 'Error parsing calendar data';
+                        }
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('selected-calendars-debug').textContent = 'Error fetching calendar data';
+                });
+        }
+    }
+    
+    // Update debug information with calendar data
+    function updateCalendarDebugInfo(data) {
+        const debugPanel = document.getElementById('calendar-debug-info');
+        if (debugPanel.style.display === 'block') {
+            const responseElement = document.getElementById('api-response-debug');
+            responseElement.textContent = JSON.stringify(data, null, 2);
+        }
+    }
 </script>
 {% endblock %} 

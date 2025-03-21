@@ -252,10 +252,13 @@ def get_events():
     start_time_str = request.args.get('start')
     end_time_str = request.args.get('end')
     
+    print(f"DEBUG: /events route called with start={start_time_str}, end={end_time_str}")
+    
     if not start_time_str or not end_time_str:
         now = datetime.now()
         start_time = now.replace(hour=8, minute=0, second=0, microsecond=0)
         end_time = now.replace(hour=18, minute=0, second=0, microsecond=0)
+        print(f"DEBUG: Using default time range: {start_time} - {end_time}")
     else:
         try:
             start_time = datetime.fromisoformat(start_time_str)
@@ -266,12 +269,15 @@ def get_events():
             end_time_str = end_time_str.replace('Z', '+00:00')
             start_time = datetime.fromisoformat(start_time_str)
             end_time = datetime.fromisoformat(end_time_str)
+        print(f"DEBUG: Parsed time range: {start_time} - {end_time}")
     
     selected_calendars = session.get('selected_calendars', [])
+    print(f"DEBUG: Selected calendars from session: {selected_calendars}")
     all_events = []
     
     # If no calendars are selected, attempt to use all available calendars
     if not selected_calendars:
+        print("DEBUG: No calendars selected, attempting to use all available calendars")
         # Try to get all calendars from all providers
         all_calendars = []
         
@@ -282,8 +288,10 @@ def get_events():
                 for cal in apple_calendars:
                     cal['provider'] = 'apple'
                     all_calendars.append(cal)
+                print(f"DEBUG: Found {len(apple_calendars)} Apple calendars")
             except Exception as e:
                 logging.error(f"Error getting Apple calendars: {str(e)}")
+                print(f"DEBUG: Error getting Apple calendars: {str(e)}")
         
         # Check for Thunderbird Calendar
         try:
@@ -291,8 +299,10 @@ def get_events():
             for cal in thunderbird_calendars:
                 cal['provider'] = 'thunderbird'
                 all_calendars.append(cal)
+            print(f"DEBUG: Found {len(thunderbird_calendars)} Thunderbird calendars")
         except Exception as e:
             logging.error(f"Error getting Thunderbird calendars: {str(e)}")
+            print(f"DEBUG: Error getting Thunderbird calendars: {str(e)}")
         
         # Check for Google Calendar if authenticated
         if 'google_token' in session:
@@ -301,8 +311,10 @@ def get_events():
                 for cal in google_calendars:
                     cal['provider'] = 'google'
                     all_calendars.append(cal)
+                print(f"DEBUG: Found {len(google_calendars)} Google calendars")
             except Exception as e:
                 logging.error(f"Error getting Google calendars: {str(e)}")
+                print(f"DEBUG: Error getting Google calendars: {str(e)}")
         
         # Check for Microsoft Calendar if authenticated
         if 'microsoft_token' in session:
@@ -311,12 +323,20 @@ def get_events():
                 for cal in microsoft_calendars:
                     cal['provider'] = 'microsoft'
                     all_calendars.append(cal)
+                print(f"DEBUG: Found {len(microsoft_calendars)} Microsoft calendars")
             except Exception as e:
                 logging.error(f"Error getting Microsoft calendars: {str(e)}")
+                print(f"DEBUG: Error getting Microsoft calendars: {str(e)}")
         
         # If we found any calendars, use all of them
         if all_calendars:
             selected_calendars = [cal['id'] for cal in all_calendars]
+            print(f"DEBUG: Auto-selected {len(selected_calendars)} calendars: {selected_calendars}")
+        else:
+            print("DEBUG: No calendars found to auto-select")
+    
+    # Print what we're about to query
+    print(f"DEBUG: Will query {len(selected_calendars)} calendars: {selected_calendars}")
     
     # Collect events from Apple Calendar if on macOS
     if platform.system() == 'Darwin':
@@ -410,4 +430,136 @@ def check_availability():
         'start': start_time.isoformat(),
         'end': end_time.isoformat(),
         'conflicting_events': conflicting_events
+    })
+
+@bp.route('/debug')
+def debug_calendars():
+    """Debug endpoint to check calendar status and events"""
+    # Security check - only allow in development mode
+    if os.environ.get('FLASK_ENV') != 'development' and os.environ.get('DEBUG') != 'True':
+        return jsonify({'error': 'Debug endpoints only available in development mode'}), 403
+        
+    now = datetime.now()
+    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    week_end = (week_start + timedelta(days=7)).replace(hour=23, minute=59, second=59, microsecond=999999)
+    
+    # Get session data
+    selected_calendars = session.get('selected_calendars', [])
+    
+    # Available calendar sources
+    sources = {}
+    calendar_providers = []
+    
+    # Check for Apple Calendar if on macOS
+    if platform.system() == 'Darwin':
+        try:
+            apple_calendars = get_apple_calendars()
+            sources['apple'] = {
+                'available': len(apple_calendars) > 0,
+                'count': len(apple_calendars),
+                'calendars': apple_calendars
+            }
+            calendar_providers.append('apple')
+        except Exception as e:
+            sources['apple'] = {
+                'available': False,
+                'error': str(e)
+            }
+    
+    # Check for Thunderbird Calendar
+    try:
+        from app.services.thunderbird_calendar import find_all_calendar_databases
+        thunderbird_dbs = find_all_calendar_databases()
+        
+        if thunderbird_dbs:
+            thunderbird_calendars = get_thunderbird_calendars()
+            sources['thunderbird'] = {
+                'available': len(thunderbird_calendars) > 0,
+                'count': len(thunderbird_calendars),
+                'calendars': thunderbird_calendars,
+                'databases': thunderbird_dbs
+            }
+            calendar_providers.append('thunderbird')
+            
+            # Get sample events for debugging
+            if thunderbird_calendars:
+                try:
+                    sample_events = get_thunderbird_events(thunderbird_calendars, week_start, week_end)
+                    sources['thunderbird']['events_count'] = len(sample_events)
+                    sources['thunderbird']['sample_events'] = sample_events[:5] if sample_events else []
+                except Exception as e:
+                    sources['thunderbird']['events_error'] = str(e)
+        else:
+            sources['thunderbird'] = {
+                'available': False,
+                'error': 'No databases found'
+            }
+    except Exception as e:
+        sources['thunderbird'] = {
+            'available': False,
+            'error': str(e)
+        }
+    
+    # Check for Google Calendar if authenticated
+    if 'google_token' in session:
+        try:
+            google_calendars = get_google_calendars(session['google_token'])
+            sources['google'] = {
+                'available': len(google_calendars) > 0,
+                'count': len(google_calendars),
+                'calendars': google_calendars
+            }
+            calendar_providers.append('google')
+            
+            # Get sample events for debugging
+            if google_calendars:
+                try:
+                    sample_events = get_google_events(google_calendars, week_start, week_end)
+                    sources['google']['events_count'] = len(sample_events)
+                    sources['google']['sample_events'] = sample_events[:5] if sample_events else []
+                except Exception as e:
+                    sources['google']['events_error'] = str(e)
+        except Exception as e:
+            sources['google'] = {
+                'available': False,
+                'error': str(e)
+            }
+    
+    # Check for Microsoft Calendar if authenticated
+    if 'microsoft_token' in session:
+        try:
+            microsoft_calendars = get_microsoft_calendars(session['microsoft_token'])
+            sources['microsoft'] = {
+                'available': len(microsoft_calendars) > 0,
+                'count': len(microsoft_calendars),
+                'calendars': microsoft_calendars
+            }
+            calendar_providers.append('microsoft')
+            
+            # Get sample events for debugging
+            if microsoft_calendars:
+                try:
+                    sample_events = get_microsoft_events(microsoft_calendars, week_start, week_end)
+                    sources['microsoft']['events_count'] = len(sample_events)
+                    sources['microsoft']['sample_events'] = sample_events[:5] if sample_events else []
+                except Exception as e:
+                    sources['microsoft']['events_error'] = str(e)
+        except Exception as e:
+            sources['microsoft'] = {
+                'available': False,
+                'error': str(e)
+            }
+    
+    return jsonify({
+        'timestamp': datetime.now().isoformat(),
+        'week_range': {
+            'start': week_start.isoformat(),
+            'end': week_end.isoformat()
+        },
+        'session': {
+            'selected_calendars': selected_calendars
+        },
+        'platform': platform.system(),
+        'providers': calendar_providers,
+        'sources': sources
     }) 
