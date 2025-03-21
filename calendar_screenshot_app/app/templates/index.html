@@ -241,10 +241,21 @@
                 },
                 nowIndicator: true,
                 initialDate: new Date(), // Force current date
-                defaultDate: new Date(), // Also set default date to now
-                now: new Date(), // Set "now" to current date
                 timeZone: 'local', // Use the browser's local timezone
                 dayMaxEvents: true,
+                
+                // Add gotoDate right after render to force current date
+                datesSet: function(dateInfo) {
+                    // Check if we're in future years (2025+)
+                    const currentYear = new Date().getFullYear();
+                    const displayedYear = dateInfo.view.currentStart.getFullYear();
+                    
+                    // If displayed year is more than 1 year in the future, force back to current date
+                    if (displayedYear > currentYear + 1) {
+                        console.log(`Correcting calendar from year ${displayedYear} to current date`);
+                        setTimeout(() => calendar.today(), 0);
+                    }
+                },
                 eventDidMount: function(info) {
                     // Add tooltips to events
                     const event = info.event;
