@@ -628,45 +628,15 @@ def find_available_slots(time_slots, date):
 
 @bp.route('/api_status', methods=['GET'])
 def api_status():
-    """Check API status and environment"""
+    """Check the status of the Claude API and display results"""
     debug_logs = []
     
-    # Check Python version and platform
-    import sys
-    python_info = f"Python {sys.version.split(' ')[0]} on {platform.system()} {platform.release()}"
-    debug_logs.append({"message": python_info, "type": "info"})
-    
-    # Check for required packages
-    required_packages = ["anthropic", "PIL", "flask", "requests"]
-    missing_packages = []
-    
-    for package in required_packages:
-        try:
-            if package == "PIL":
-                import PIL
-                debug_logs.append({"message": f"✓ {package} v{PIL.__version__} installed", "type": "success"})
-            elif package == "flask":
-                import flask
-                debug_logs.append({"message": f"✓ {package} v{flask.__version__} installed", "type": "success"})
-            elif package == "anthropic":
-                import anthropic
-                debug_logs.append({"message": f"✓ {package} v{anthropic.__version__} installed", "type": "success"})
-            elif package == "requests":
-                import requests
-                debug_logs.append({"message": f"✓ {package} v{requests.__version__} installed", "type": "success"})
-        except (ImportError, AttributeError):
-            missing_packages.append(package)
-            debug_logs.append({"message": f"✗ {package} not found", "type": "error"})
-    
-    if missing_packages:
-        debug_logs.append({"message": f"Missing required packages: {', '.join(missing_packages)}", "type": "error"})
-    
-    # Check API key configuration
+    # Check for API key
     api_key = os.environ.get('CLAUDE_API_KEY')
+    
     if not api_key:
-        debug_logs.append({"message": "CLAUDE_API_KEY environment variable not set", "type": "error"})
+        debug_logs.append({"message": "Claude API key not found in environment variables", "type": "error"})
     else:
-        # Basic check for key format (Claude API keys start with 'sk-')
         if api_key.startswith('sk-'):
             masked_key = f"{api_key[:5]}...{api_key[-2:]}"
             debug_logs.append({"message": f"API key found with correct format (masked: {masked_key})", "type": "success"})
@@ -675,15 +645,21 @@ def api_status():
     
     # Check network connectivity to Claude API
     from app.services.claude_service import check_network_connectivity
-    connectivity_success, connectivity_results = check_network_connectivity()
+    connectivity_result = check_network_connectivity()
     
-    # Add connectivity logs to our debug logs
-    debug_logs.extend(connectivity_results)
+    # Determine if connectivity was successful
+    connectivity_success = connectivity_result.get("success", False)
+    
+    # Add connectivity log to our debug logs
+    if connectivity_success:
+        debug_logs.append({"message": connectivity_result.get("message", "Connected to Anthropic API"), "type": "success"})
+    else:
+        debug_logs.append({"message": connectivity_result.get("error", "Failed to connect to Anthropic API"), "type": "error"})
     
     # Create network status for the template
     network_status = {
         "success": connectivity_success,
-        "message": connectivity_results[-1]["message"] if connectivity_results else "Unknown connectivity issue"
+        "message": connectivity_result.get("message") if connectivity_success else connectivity_result.get("error", "Unknown connectivity issue")
     }
     
     # Check API access by making a simple test request if key is available
@@ -775,8 +751,8 @@ def api_status():
     
     # Return the status information
     status_result = {
-        "python": python_info,
-        "packages": {"required": required_packages, "missing": missing_packages},
+        "python": f"Python {platform.python_version()} on {platform.system()}",
+        "packages": {"required": ["anthropic", "PIL", "flask", "requests"]},
         "api_key": {"configured": bool(api_key), "valid_format": bool(api_key and api_key.startswith('sk-'))},
         "network": network_status,
         "api_access": api_access,
