@@ -443,30 +443,40 @@ def get_events():
     formatted_events = []
     for event in all_events:
         try:
-            # Ensure start and end times are datetime objects with timezone info
+            # Get start and end times 
             start_time = event.get('start')
             end_time = event.get('end')
             
-            if not isinstance(start_time, datetime):
-                print(f"DEBUG: Invalid start time format for event {event.get('id')}: {start_time}")
+            # Check if they're already ISO strings (from Thunderbird events)
+            if isinstance(start_time, str) and isinstance(end_time, str):
+                # Ensure they have 'Z' for UTC timezone if needed
+                if start_time.endswith('+00:00'):
+                    start_time = start_time.replace('+00:00', 'Z')
+                if end_time.endswith('+00:00'):
+                    end_time = end_time.replace('+00:00', 'Z')
+            # Convert datetime objects to ISO strings if needed
+            elif isinstance(start_time, datetime):
+                # Add timezone if missing
+                if start_time.tzinfo is None:
+                    start_time = start_time.replace(tzinfo=timezone.utc)
+                # Convert to ISO string with Z
+                start_time = start_time.isoformat().replace('+00:00', 'Z')
+                
+                # Same for end time
+                if end_time is not None:
+                    if end_time.tzinfo is None:
+                        end_time = end_time.replace(tzinfo=timezone.utc)
+                    end_time = end_time.isoformat().replace('+00:00', 'Z')
+            else:
+                print(f"DEBUG: Invalid start/end time format for event {event.get('id')}")
                 continue
-            
-            if not isinstance(end_time, datetime):
-                print(f"DEBUG: Invalid end time format for event {event.get('id')}: {end_time}")
-                continue
-            
-            # Ensure timezone info exists
-            if start_time.tzinfo is None:
-                start_time = start_time.replace(tzinfo=timezone.utc)
-            if end_time.tzinfo is None:
-                end_time = end_time.replace(tzinfo=timezone.utc)
             
             # Format the event
             formatted_event = {
                 'id': event.get('id'),
                 'title': event.get('title', 'Untitled Event'),
-                'start': start_time.isoformat(),
-                'end': end_time.isoformat(),
+                'start': start_time,
+                'end': end_time,
                 'allDay': event.get('all_day', False),
             }
             
