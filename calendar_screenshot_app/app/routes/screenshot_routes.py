@@ -167,6 +167,18 @@ def upload_screenshot():
                 slot['start_time'] = slot['start_time'].replace(year=calendar_year)
                 slot['end_time'] = slot['end_time'].replace(year=calendar_year)
                 print(f"DEBUG: Adjusted slot time to calendar year {calendar_year} - Start: {slot['start_time']}, End: {slot['end_time']}")
+                
+                # Add a test event for each adjusted time slot for debugging
+                all_events.append({
+                    'title': f"Test: {slot.get('context', 'Time Slot')}",
+                    'start': slot['start_time'],
+                    'end': slot['end_time'],
+                    'backgroundColor': '#FF9500',
+                    'borderColor': '#FF7700',
+                    'classNames': ['test-event'],
+                    'provider': 'test'
+                })
+                print(f"DEBUG: Added test event for adjusted slot: {slot['start_time']} - {slot['end_time']}")
             
             # Ensure available is not null (prevents rendering issues)
             if slot['available'] is None:
@@ -201,8 +213,23 @@ def upload_screenshot():
         print(f"DEBUG: Original date range from screenshot: {earliest_start} to {latest_end}")
         
         # Get all calendar events using our helper function
-        all_events = get_all_calendar_events(session.get('selected_calendars', []), calendar_start, calendar_end)
-        print(f"DEBUG: Retrieved {len(all_events)} calendar events")
+        # Use the calendar_year we determined earlier to ensure correct year
+        if not all_events:  # Only if no events have been added yet
+            # Extract calendar year from the adjusted time slots
+            adjusted_min_date = min(slot['start_time'] for slot in result['time_slots'])
+            adjusted_max_date = max(slot['end_time'] for slot in result['time_slots'])
+            
+            print(f"DEBUG: Looking for events in date range: {adjusted_min_date} to {adjusted_max_date}")
+            all_events = get_all_calendar_events(session.get('selected_calendars', []), adjusted_min_date, adjusted_max_date)
+            print(f"DEBUG: Retrieved {len(all_events)} calendar events")
+            
+            # Also try with a broader date range if no events found
+            if not all_events:
+                start_of_month = adjusted_min_date.replace(day=1)
+                end_of_month = (adjusted_max_date.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+                print(f"DEBUG: No events found. Trying broader date range: {start_of_month} to {end_of_month}")
+                all_events = get_all_calendar_events(session.get('selected_calendars', []), start_of_month, end_of_month)
+                print(f"DEBUG: Retrieved {len(all_events)} calendar events with broader date range")
         
         # Debug event information
         for event in all_events[:5]:  # Log first 5 events for debugging
