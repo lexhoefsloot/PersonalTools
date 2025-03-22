@@ -219,17 +219,72 @@ def upload_screenshot():
             adjusted_min_date = min(slot['start_time'] for slot in result['time_slots'])
             adjusted_max_date = max(slot['end_time'] for slot in result['time_slots'])
             
-            print(f"DEBUG: Looking for events in date range: {adjusted_min_date} to {adjusted_max_date}")
-            all_events = get_all_calendar_events(session.get('selected_calendars', []), adjusted_min_date, adjusted_max_date)
+            # Ensure we're using the right calendar IDs - fetch them directly if needed
+            selected_calendar_ids = session.get('selected_calendars', [])
+            
+            # Extend the date range to include the whole month for each date
+            month_start_date = adjusted_min_date.replace(day=1)
+            if adjusted_max_date.month == adjusted_min_date.month:
+                # If same month, go to end of month
+                next_month = adjusted_min_date.replace(day=28) + timedelta(days=4)
+                month_end_date = next_month.replace(day=1) - timedelta(days=1)
+            else:
+                # If different months, use end of the last month
+                next_month = adjusted_max_date.replace(day=28) + timedelta(days=4)
+                month_end_date = next_month.replace(day=1) - timedelta(days=1)
+            
+            # Adjust the end date to be end of day
+            month_end_date = month_end_date.replace(hour=23, minute=59, second=59)
+            
+            print(f"DEBUG: Looking for events in broad date range: {month_start_date} to {month_end_date}")
+            print(f"DEBUG: Selected calendar IDs: {selected_calendar_ids}")
+            
+            # Force include all available Thunderbird calendars
+            try:
+                from app.services.thunderbird_calendar import get_thunderbird_calendars
+                thunderbird_calendars = get_thunderbird_calendars()
+                if thunderbird_calendars:
+                    thunderbird_ids = [cal['id'] for cal in thunderbird_calendars]
+                    print(f"DEBUG: Found {len(thunderbird_calendars)} Thunderbird calendars: {thunderbird_ids}")
+                    
+                    # Add any missing Thunderbird calendar IDs
+                    for cal_id in thunderbird_ids:
+                        if cal_id not in selected_calendar_ids:
+                            selected_calendar_ids.append(cal_id)
+                            print(f"DEBUG: Added missing Thunderbird calendar: {cal_id}")
+            except Exception as e:
+                print(f"DEBUG: Error getting Thunderbird calendars: {e}")
+            
+            # Get all events with the extended calendar IDs and date range
+            all_events = get_all_calendar_events(selected_calendar_ids, month_start_date, month_end_date)
             print(f"DEBUG: Retrieved {len(all_events)} calendar events")
             
-            # Also try with a broader date range if no events found
+            # If we still have no events, try an even broader approach
             if not all_events:
-                start_of_month = adjusted_min_date.replace(day=1)
-                end_of_month = (adjusted_max_date.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-                print(f"DEBUG: No events found. Trying broader date range: {start_of_month} to {end_of_month}")
-                all_events = get_all_calendar_events(session.get('selected_calendars', []), start_of_month, end_of_month)
-                print(f"DEBUG: Retrieved {len(all_events)} calendar events with broader date range")
+                print(f"DEBUG: No events found. Trying all available calendars")
+                all_calendars = []
+                
+                # Include all detectable calendars
+                try:
+                    from app.services.thunderbird_calendar import get_thunderbird_calendars
+                    thunderbird_calendars = get_thunderbird_calendars()
+                    if thunderbird_calendars:
+                        all_calendars.extend([cal['id'] for cal in thunderbird_calendars])
+                except:
+                    pass
+                    
+                if platform.system() == 'Darwin':
+                    try:
+                        apple_calendars = get_apple_calendars()
+                        if apple_calendars:
+                            all_calendars.extend([cal['id'] for cal in apple_calendars])
+                    except:
+                        pass
+                
+                if all_calendars:
+                    print(f"DEBUG: Trying with all {len(all_calendars)} available calendars")
+                    all_events = get_all_calendar_events(all_calendars, month_start_date, month_end_date)
+                    print(f"DEBUG: Retrieved {len(all_events)} calendar events with all calendars")
         
         # Debug event information
         for event in all_events[:5]:  # Log first 5 events for debugging
@@ -263,14 +318,52 @@ def upload_screenshot():
                 slot['conflicts'] = []
                 slot['available'] = True
                 
+                # Get slot times for easier comparison
+                slot_start = slot['start_time']
+                slot_end = slot['end_time']
+                
+                # Debug print
+                print(f"DEBUG: Checking conflicts for slot {slot.get('context', '')}: {slot_start} - {slot_end}")
+                
                 for event in all_events:
-                    event_start = event['start']
-                    event_end = event['end']
+                    # Extract the event start/end times, handling both datetime objects and strings
+                    if isinstance(event['start'], str):
+                        # Convert ISO string to datetime
+                        if event['start'].endswith('Z'):
+                            event_start = datetime.fromisoformat(event['start'].replace('Z', '+00:00'))
+                        else:
+                            event_start = datetime.fromisoformat(event['start'])
+                    else:
+                        event_start = event['start']
+                    
+                    if isinstance(event['end'], str):
+                        # Convert ISO string to datetime
+                        if event['end'].endswith('Z'):
+                            event_end = datetime.fromisoformat(event['end'].replace('Z', '+00:00'))
+                        else:
+                            event_end = datetime.fromisoformat(event['end'])
+                    else:
+                        event_end = event['end']
+                    
+                    # Make sure both have timezone info
+                    if event_start.tzinfo is None:
+                        event_start = event_start.replace(tzinfo=timezone.utc)
+                    if event_end.tzinfo is None:
+                        event_end = event_end.replace(tzinfo=timezone.utc)
                     
                     # Check for overlap: if start_time < event_end and end_time > event_start
-                    if slot['start_time'] < event_end and slot['end_time'] > event_start:
+                    if slot_start < event_end and slot_end > event_start:
                         slot['available'] = False
-                        slot['conflicts'].append(event)
+                        # Create a conflict entry with clean display info
+                        conflict = {
+                            'title': event.get('title', 'Untitled Event'),
+                            'start': event_start,
+                            'end': event_end,
+                            'calendar_id': event.get('calendar_id', 'unknown'),
+                            'provider': event.get('provider', 'unknown')
+                        }
+                        slot['conflicts'].append(conflict)
+                        print(f"DEBUG: Conflict found with '{event.get('title', 'Untitled Event')}' ({event_start} - {event_end})")
             except Exception as e:
                 slot['available'] = False
                 slot['error'] = str(e)
