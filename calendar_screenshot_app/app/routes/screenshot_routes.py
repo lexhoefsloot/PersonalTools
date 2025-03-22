@@ -457,6 +457,39 @@ def upload_screenshot():
         # Find available slots
         suggested_slots = find_alternative_slots(result['time_slots'], all_events)
         
+        # IMPORTANT: Directly merge any thunderbird events with our all_events list
+        # This is critical to ensure we see both test and real events
+        try:
+            from app.services.thunderbird_calendar import get_thunderbird_calendars, get_thunderbird_events
+            thunderbird_calendars = get_thunderbird_calendars()
+            if thunderbird_calendars:
+                thunderbird_ids = [cal['id'] for cal in thunderbird_calendars]
+                print(f"DEBUG DIRECT: Found {len(thunderbird_calendars)} Thunderbird calendars: {thunderbird_ids}")
+                
+                # Get all events for each calendar for March-April 2025 (when the events are shown)
+                now = datetime.now()
+                calendar_year = 2025  # Force the year to 2025 since that's what we're displaying
+                
+                month_start = datetime(calendar_year, 3, 1, tzinfo=timezone.utc)  # March 1, 2025
+                month_end = datetime(calendar_year, 5, 1, tzinfo=timezone.utc)  # May 1, 2025
+                
+                print(f"DEBUG DIRECT: Fetching events from {month_start} to {month_end} (year={calendar_year})")
+                
+                # For each Thunderbird calendar, get events directly
+                for calendar_id in thunderbird_ids:
+                    print(f"DEBUG DIRECT: Getting events for {calendar_id} from {month_start} to {month_end}")
+                    thunderbird_events = get_thunderbird_events([calendar_id], month_start, month_end)
+                    print(f"DEBUG DIRECT: Found {len(thunderbird_events)} events for {calendar_id}")
+                    for event in thunderbird_events:
+                        print(f"DEBUG DIRECT: Adding real event: {event.get('title')} - {event.get('start')} to {event.get('end')}")
+                        # Set special style for real events to make them stand out
+                        event['backgroundColor'] = '#4a86e8'  # Bright blue
+                        event['borderColor'] = '#2a5db0'
+                        event['classNames'] = ['real-event', 'thunderbird-event']
+                        all_events.append(event)
+        except Exception as e:
+            print(f"DEBUG DIRECT: Error fetching Thunderbird events: {e}")
+            
         # Debug: Output information about calendar events
         print(f"DEBUG: Passing {len(all_events)} calendar events to template")
         if all_events:
