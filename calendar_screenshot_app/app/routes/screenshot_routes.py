@@ -239,25 +239,49 @@ def upload_screenshot():
             print(f"DEBUG: Looking for events in broad date range: {month_start_date} to {month_end_date}")
             print(f"DEBUG: Selected calendar IDs: {selected_calendar_ids}")
             
-            # Force include all available Thunderbird calendars
-            try:
-                from app.services.thunderbird_calendar import get_thunderbird_calendars
-                thunderbird_calendars = get_thunderbird_calendars()
-                if thunderbird_calendars:
-                    thunderbird_ids = [cal['id'] for cal in thunderbird_calendars]
-                    print(f"DEBUG: Found {len(thunderbird_calendars)} Thunderbird calendars: {thunderbird_ids}")
-                    
-                    # Add any missing Thunderbird calendar IDs
-                    for cal_id in thunderbird_ids:
-                        if cal_id not in selected_calendar_ids:
-                            selected_calendar_ids.append(cal_id)
-                            print(f"DEBUG: Added missing Thunderbird calendar: {cal_id}")
-            except Exception as e:
-                print(f"DEBUG: Error getting Thunderbird calendars: {e}")
-            
             # Get all events with the extended calendar IDs and date range
-            all_events = get_all_calendar_events(selected_calendar_ids, month_start_date, month_end_date)
-            print(f"DEBUG: Retrieved {len(all_events)} calendar events")
+            all_events = []
+            
+            try:
+                # Use the same code that works for the home page calendar
+                from app.routes.calendar_routes import get_thunderbird_events
+                
+                # Force include all available Thunderbird calendars
+                try:
+                    from app.services.thunderbird_calendar import get_thunderbird_calendars
+                    thunderbird_calendars = get_thunderbird_calendars()
+                    if thunderbird_calendars:
+                        thunderbird_ids = [cal['id'] for cal in thunderbird_calendars]
+                        print(f"DEBUG: Found {len(thunderbird_calendars)} Thunderbird calendars: {thunderbird_ids}")
+                        
+                        # Get events directly from each calendar
+                        for calendar_id in thunderbird_ids:
+                            print(f"DEBUG: Getting events for calendar {calendar_id} from {month_start_date} to {month_end_date}")
+                            thunderbird_events = get_thunderbird_events([calendar_id], month_start_date, month_end_date)
+                            print(f"DEBUG: Retrieved {len(thunderbird_events)} events from Thunderbird calendar {calendar_id}")
+                            all_events.extend(thunderbird_events)
+                except Exception as e:
+                    print(f"DEBUG: Error getting Thunderbird events directly: {e}")
+                
+                # If we still have no events other than the test events, or just want to add the test events too,
+                # add them so the user can see something
+                if all_events:
+                    print(f"DEBUG: Retrieved {len(all_events)} real calendar events")
+                else:
+                    print(f"DEBUG: No real calendar events found, only test events will be shown")
+                
+            except Exception as e:
+                print(f"DEBUG: Error querying events using direct method: {e}")
+                import traceback
+                print(f"DEBUG: {traceback.format_exc()}")
+                
+                # Fall back to the old method if direct method fails
+                try:
+                    print(f"DEBUG: Falling back to get_all_calendar_events")
+                    all_events = get_all_calendar_events(selected_calendar_ids, month_start_date, month_end_date)
+                    print(f"DEBUG: Retrieved {len(all_events)} calendar events with fallback method")
+                except Exception as e2:
+                    print(f"DEBUG: Error with fallback method too: {e2}")
             
             # If we still have no events, try an even broader approach
             if not all_events:
