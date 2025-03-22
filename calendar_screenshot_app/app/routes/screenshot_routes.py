@@ -17,6 +17,7 @@ from PIL import Image, ImageGrab
 from io import BytesIO
 import time
 import anthropic
+import requests
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -243,33 +244,59 @@ def upload_screenshot():
             all_events = []
             
             try:
-                # Use the same code that works for the home page calendar
-                from app.routes.calendar_routes import get_thunderbird_events
+                # DIRECT SOLUTION: Call the same endpoint used by the homepage calendar
+                # This is a more direct approach that will ensure consistency
                 
-                # Force include all available Thunderbird calendars
+                # Format dates for the API
+                start_date_iso = month_start_date.isoformat()
+                end_date_iso = month_end_date.isoformat()
+                
+                # Call the local API endpoint that works for the main calendar
+                api_url = f"http://localhost:5001/calendar/events?start={start_date_iso}&end={end_date_iso}"
+                print(f"DEBUG: Directly calling events API at: {api_url}")
+                
                 try:
-                    from app.services.thunderbird_calendar import get_thunderbird_calendars
-                    thunderbird_calendars = get_thunderbird_calendars()
-                    if thunderbird_calendars:
-                        thunderbird_ids = [cal['id'] for cal in thunderbird_calendars]
-                        print(f"DEBUG: Found {len(thunderbird_calendars)} Thunderbird calendars: {thunderbird_ids}")
+                    response = requests.get(api_url)
+                    if response.status_code == 200:
+                        api_events = response.json()
+                        print(f"DEBUG: Successfully retrieved {len(api_events)} events from API")
+                        all_events.extend(api_events)
                         
-                        # Get events directly from each calendar
-                        for calendar_id in thunderbird_ids:
-                            print(f"DEBUG: Getting events for calendar {calendar_id} from {month_start_date} to {month_end_date}")
-                            thunderbird_events = get_thunderbird_events([calendar_id], month_start_date, month_end_date)
-                            print(f"DEBUG: Retrieved {len(thunderbird_events)} events from Thunderbird calendar {calendar_id}")
-                            all_events.extend(thunderbird_events)
-                except Exception as e:
-                    print(f"DEBUG: Error getting Thunderbird events directly: {e}")
+                        # Print sample of fetched events
+                        for i, event in enumerate(api_events[:5]):
+                            print(f"DEBUG: API event {i+1}: {event.get('title')} - {event.get('start')} to {event.get('end')}")
+                    else:
+                        print(f"DEBUG: API returned status code {response.status_code}")
+                except Exception as api_err:
+                    print(f"DEBUG: Error calling events API: {api_err}")
                 
-                # If we still have no events other than the test events, or just want to add the test events too,
-                # add them so the user can see something
-                if all_events:
-                    print(f"DEBUG: Retrieved {len(all_events)} real calendar events")
-                else:
-                    print(f"DEBUG: No real calendar events found, only test events will be shown")
-                
+                # If we didn't get events from the API call, try the direct approach
+                if not all_events or len(all_events) <= len(result['time_slots']):  # Only test events
+                    print(f"DEBUG: No events found from API. Trying direct approach")
+                    all_calendars = []
+                    
+                    # Include all detectable calendars
+                    try:
+                        from app.services.thunderbird_calendar import get_thunderbird_calendars
+                        thunderbird_calendars = get_thunderbird_calendars()
+                        if thunderbird_calendars:
+                            all_calendars.extend([cal['id'] for cal in thunderbird_calendars])
+                    except:
+                        pass
+                        
+                    if platform.system() == 'Darwin':
+                        try:
+                            apple_calendars = get_apple_calendars()
+                            if apple_calendars:
+                                all_calendars.extend([cal['id'] for cal in apple_calendars])
+                        except:
+                            pass
+                    
+                    if all_calendars:
+                        print(f"DEBUG: Trying with all {len(all_calendars)} available calendars")
+                        all_events = get_all_calendar_events(all_calendars, month_start_date, month_end_date)
+                        print(f"DEBUG: Retrieved {len(all_events)} calendar events with all calendars")
+            
             except Exception as e:
                 print(f"DEBUG: Error querying events using direct method: {e}")
                 import traceback
@@ -313,6 +340,39 @@ def upload_screenshot():
         # Debug event information
         for event in all_events[:5]:  # Log first 5 events for debugging
             print(f"DEBUG EVENT: {event.get('title')} - {event.get('start')} to {event.get('end')}")
+        
+        # Enhance and differentiate real calendar events vs test events
+        for event in all_events:
+            # Check if this is one of our generated test events
+            if 'provider' in event and event['provider'] == 'test' and event['title'].startswith('Test:'):
+                # Leave test events as is
+                event['backgroundColor'] = '#FF9500'  # Orange
+                event['borderColor'] = '#FF7700'
+                event['classNames'] = ['test-event']
+            else:
+                # Make real events stand out with different colors
+                if 'backgroundColor' not in event:
+                    # Set color based on provider
+                    provider = event.get('provider', 'unknown')
+                    if provider == 'thunderbird':
+                        event['backgroundColor'] = '#0057B7'  # Blue
+                        event['borderColor'] = '#004494'
+                    elif provider == 'google':
+                        event['backgroundColor'] = '#4285F4'  # Google blue
+                        event['borderColor'] = '#3367D6'
+                    elif provider == 'microsoft':
+                        event['backgroundColor'] = '#00a1f1'  # Microsoft blue
+                        event['borderColor'] = '#0078d4'
+                    elif provider == 'apple':
+                        event['backgroundColor'] = '#007AFF'  # Apple blue
+                        event['borderColor'] = '#0055CC'
+                    else:
+                        # Default
+                        event['backgroundColor'] = '#2C3E50'
+                        event['borderColor'] = '#1a252f'
+                
+                if 'classNames' not in event:
+                    event['classNames'] = ['real-calendar-event']
         
         # Additional debug info for calendars
         print(f"DEBUG: Selected calendars: {session.get('selected_calendars', [])}")
